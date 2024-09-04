@@ -129,7 +129,7 @@ def main():
     args = parse.parse_args()
     LOG.basicConfig(level=LOG.DEBUG if args.debug else LOG.INFO)
 
-    with open(os.path.expanduser('~/.config/openqa'), encoding='utf8') as f:
+    with open(os.path.expanduser('~/.config/slacky'), encoding='utf8') as f:
         CONF.read_file(f)
 
     while True:
