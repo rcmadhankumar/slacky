@@ -65,7 +65,7 @@ def listen_openqa_events():
         exchange='pubsub', exchange_type='topic', passive=True, durable=False
     )
     queue_name = channel.queue_declare('', exclusive=True).method.queue
-    channel.queue_bind(exchange='pubsub', queue=queue_name, routing_key='suse.openqa.#')
+    channel.queue_bind(exchange='pubsub', queue=queue_name, routing_key='#')
 
     print(' [*] Waiting for logs. To exit press CTRL+C')
 
@@ -73,10 +73,20 @@ def listen_openqa_events():
 
     def callback(_, method, _unused, body) -> None:
         """Find failed jobs without pending jobs and then post a message to slack."""
+        if method.routing_key.startswith('suse.openqa.job'):
+            handle_openqa_event(method, body)
+        elif method.routing_key.startswith('suse.obs.package'):
+            handle_obs_package_event(method, body)
+        elif not method.routing_key.startswith(
+            'suse.obs.metrics'
+        ) and 'Containers' in str(body):
+            print(' [x] %r:%r' % (method.routing_key, body))
+
+    def handle_openqa_event(method, body):
         msg = json.loads(body)
         build_id: str = msg.get('BUILD')
 
-        if msg.get('group_id'):  # in OPENQA_GROUPS_FILTER:
+        if msg.get('group_id') in OPENQA_GROUPS_FILTER:
             print(' [x] %r:%r' % (method.routing_key, msg))
             if 'suse.openqa.job.create' in method.routing_key:
                 if msg.get('id'):
@@ -115,6 +125,27 @@ def listen_openqa_events():
                     if not results.get('pending'):
                         # Clear the build from pending jobs
                         del openqa_jobs[build_id]
+
+    def handle_obs_package_event(method, body):
+        msg = json.loads(body)
+
+        if not msg.get('project', '').startswith('SUSE:') or msg.get(
+            'previouslyfailed'
+        ):
+            return
+
+        if 'suse.obs.package.build_fail' in method.routing_key:
+            LOG.info(
+                f"obs build fail {msg['project']}/{msg['package']}/{msg['repository']}/{msg['arch']}"
+            )
+            if msg['project'].endswith('Update:BCI') or msg['project'].endswith(
+                'Update:CR'
+            ):
+                post_failure_notification_to_slack(
+                    ':obs:',
+                    f"{msg['project']}/{msg['package']}/{msg['repository']}/{msg['arch']} failed to build.",
+                    f"{CONF['obs']['host']}{msg['project']}/{msg['package']}/{msg['repository']}/{msg['arch']}",
+                )
 
     channel.basic_consume(queue_name, callback, auto_ack=True)
     channel.start_consuming()
