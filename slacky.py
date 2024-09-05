@@ -22,6 +22,7 @@ import json
 import logging as LOG
 import os
 import random
+import re
 import time
 from dataclasses import dataclass
 
@@ -70,6 +71,7 @@ def listen_amqp_events():
     print(' [*] Waiting for logs. To exit press CTRL+C')
 
     openqa_jobs = collections.defaultdict(list)
+    project_re = re.compile(CONF['obs']['project_re'])
 
     def callback(_, method, _unused, body) -> None:
         """Find failed jobs without pending jobs and then post a message to slack."""
@@ -95,13 +97,11 @@ def listen_amqp_events():
                     )
                     LOG.info(f"Job {build_id}/{msg['id']} created (pending)")
             elif 'suse.openqa.job.done' in method.routing_key:
-                LOG.info(f'pending jobs {openqa_jobs}')
                 if build_id not in openqa_jobs:
                     # we might have been just restarted, insert it
                     openqa_jobs[build_id].append(
                         openQAJob(id=msg['id'], build=build_id, result='pending')
                     )
-                    LOG.info(f'pending jobs {openqa_jobs}')
                 if build_id in openqa_jobs:
                     for job in openqa_jobs[build_id]:
                         if job.id == msg['id']:
@@ -129,8 +129,9 @@ def listen_amqp_events():
     def handle_obs_package_event(method, body):
         msg = json.loads(body)
 
-        if not msg.get('project', '').startswith('SUSE:') or msg.get(
-            'previouslyfailed'
+        if (
+            not project_re.match(msg.get('project', ''))
+            or msg.get('previouslyfailed') == '1'
         ):
             return
 
@@ -138,14 +139,11 @@ def listen_amqp_events():
             LOG.info(
                 f"obs build fail {msg['project']}/{msg['package']}/{msg['repository']}/{msg['arch']}"
             )
-            if msg['project'].endswith('Update:BCI') or msg['project'].endswith(
-                'Update:CR'
-            ):
-                post_failure_notification_to_slack(
-                    ':obs:',
-                    f"{msg['project']}/{msg['package']}/{msg['repository']}/{msg['arch']} failed to build.",
-                    f"{CONF['obs']['host']}{msg['project']}/{msg['package']}/{msg['repository']}/{msg['arch']}",
-                )
+            post_failure_notification_to_slack(
+                ':obs:',
+                f"{msg['project']}/{msg['package']}/{msg['repository']}/{msg['arch']} failed to build.",
+                f"{CONF['obs']['host']}{msg['project']}/{msg['package']}/{msg['repository']}/{msg['arch']}",
+            )
 
     channel.basic_consume(queue_name, callback, auto_ack=True)
     channel.start_consuming()
