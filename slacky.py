@@ -74,7 +74,7 @@ def listen_amqp_events():
     project_re = re.compile(CONF['obs']['project_re'])
 
     def callback(_, method, _unused, body) -> None:
-        """Find failed jobs without pending jobs and then post a message to slack."""
+        """Generic dispatcher for events posted on the AMPQ channel."""
         if method.routing_key.startswith('suse.openqa.job'):
             handle_openqa_event(method, body)
         elif method.routing_key.startswith('suse.obs.package'):
@@ -85,6 +85,7 @@ def listen_amqp_events():
             LOG.info(f' [x] {method.routing_key!r}:{body!r}')
 
     def handle_openqa_event(method, body):
+        """Find failed jobs without pending jobs and then post a message to slack."""
         msg = json.loads(body)
         build_id: str = msg.get('BUILD')
 
@@ -127,6 +128,7 @@ def listen_amqp_events():
                         del openqa_jobs[build_id]
 
     def handle_obs_package_event(method, body):
+        """Post any build failures for the configured projects to slack."""
         msg = json.loads(body)
 
         if (
