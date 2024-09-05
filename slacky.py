@@ -27,6 +27,7 @@ import re
 import sys
 import time
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 import pika
@@ -63,9 +64,22 @@ class openQAJob:
     result: str
 
 
+@dataclass
+class bs_Request:
+    """Track build service requests identified by id"""
+
+    id: int
+    targetproject: str
+    targetpackage: str
+    created_at: datetime
+    is_announced: bool = False
+
+
 class Slacky:
     # when adding more state, please update load_state()
     openqa_jobs = collections.defaultdict(list)
+    bs_requests = collections.defaultdict(None)
+    last_interval_check = datetime.now()
 
     def handle_openqa_event(self, method, body):
         """Find failed jobs without pending jobs and then post a message to slack."""
@@ -124,7 +138,59 @@ class Slacky:
                 f"{CONF['obs']['host']}{msg['project']}/{msg['package']}/{msg['repository']}/{msg['arch']}",
             )
 
+    def handle_obs_request_event(self, method, body):
+        """Warn when requests get declined, track them for hang detection."""
+        msg = json.loads(body)
+
+        if 'suse.obs.request.create' in method.routing_key:
+            for action in msg['actions']:
+                if action['type'] == 'submit' and 'BCI' in action['targetproject']:
+                    LOG.info(
+                        f"found new submitrequest against {action['targetproject']}: id {msg['number']}"
+                    )
+                    bs_request = bs_Request(
+                        id=msg['number'],
+                        targetproject=action['targetproject'],
+                        targetpackage=action['targetpackage'],
+                        created_at=datetime.now(),
+                    )
+                    self.bs_requests[msg['number']] = bs_request
+                    post_failure_notification_to_slack(
+                        ':announcement',
+                        f'{bs_request.targetproject} / {bs_request.targetpackage}: New request to review!',
+                        f"{CONF['obs']['host']}/request/show/{bs_request.id}",
+                    )
+
+        if 'suse.obs.request.state_change' in method.routing_key:
+            bs_request = self.bs_requests.get(msg['number'])
+            if bs_request:
+                if msg['state'] in ('declined',):
+                    post_failure_notification_to_slack(
+                        ':request-changes:',
+                        f'Request to {bs_request.targetproject} / {bs_request.targetpackage} got declined.',
+                        f"{CONF['obs']['host']}/request/show/{bs_request.id}",
+                    )
+                    bs_request.is_announced = True
+                if msg['state'] in ('accepted', 'revoked', 'superseded'):
+                    LOG.info(f"request {msg['number']} entered final state.")
+                    del self.bs_requests[msg['number']]
+
+    def check_pending_requests(self):
+        """Announce requests that are hanging around"""
+        for reqid, req in self.bs_requests.items():
+            if (
+                not req.is_announced
+                and (datetime.now() - req.created_at).total_seconds() > 4 * 60 * 60
+            ):
+                post_failure_notification_to_slack(
+                    ':announcement',
+                    f'{req.targetproject} / {req.targetpackage}: is waiting for review!',
+                    f"{CONF['obs']['host']}/request/show/{req.id}",
+                )
+                req.is_announced = True
+
     def load_state(self) -> None:
+        """Restore persisted from a previously launched slacky"""
         state_file = Path(__file__).resolve().parent / 'state.pickle'
         if state_file.is_file():
             with open(Path(__file__).resolve().parent / 'state.pickle', 'rb') as f:
@@ -134,9 +200,13 @@ class Slacky:
                 pprint.pprint(data.openqa_jobs)
                 # copy over the interesting data fields
                 self.openqa_jobs = data.openqa_jobs
-                LOG.info(f'Loaded state(openqa_jobs = {self.openqa_jobs})')
+                self.bs_requests = data.bs_requests
+                LOG.info(
+                    f'Loaded state(openqa_jobs = {self.openqa_jobs}, bs_requests = {self.bs_requests})'
+                )
 
     def save_state(self) -> None:
+        """pickle the slacky state for future instance preservation"""
         with open(Path(__file__).resolve().parent / 'state.pickle', 'wb') as f:
             pickle.dump(self, f)
             LOG.info('Saved state to state.pickle')
@@ -157,10 +227,17 @@ class Slacky:
 
         def callback(_, method, _unused, body) -> None:
             """Generic dispatcher for events posted on the AMPQ channel."""
+
+            if (datetime.now() - self.last_interval_check).total_seconds() > 0:
+                self.check_pending_requests()
+                self.last_interval_check = datetime.now()
+
             if method.routing_key.startswith('suse.openqa.job'):
                 self.handle_openqa_event(method, body)
             elif method.routing_key.startswith('suse.obs.package'):
                 self.handle_obs_package_event(method, body)
+            elif method.routing_key.startswith('suse.obs.request'):
+                self.handle_obs_request_event(method, body)
             elif not method.routing_key.startswith(
                 'suse.obs.metrics'
             ) and 'Containers' in str(body):
@@ -190,8 +267,8 @@ def main():
         CONF.read_file(f)
 
     while True:
+        slacky = Slacky()
         try:
-            slacky = Slacky()
             slacky.run()
         except (pika.exceptions.ConnectionClosed, pika.exceptions.AMQPHeartbeatTimeout):
             time.sleep(random.randint(10, 100))
