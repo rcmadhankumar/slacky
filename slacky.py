@@ -21,10 +21,13 @@ import configparser
 import json
 import logging as LOG
 import os
+import pickle
 import random
 import re
+import sys
 import time
 from dataclasses import dataclass
+from pathlib import Path
 
 import pika
 import requests
@@ -60,34 +63,11 @@ class openQAJob:
     result: str
 
 
-def listen_amqp_events():
-    """pubsub subscribe to events posted on the AMPQ channel."""
-    channel: BlockingChannel = pika.BlockingConnection(
-        pika.URLParameters(CONF['DEFAULT']['listen_url'])
-    ).channel()
-    channel.exchange_declare(
-        exchange='pubsub', exchange_type='topic', passive=True, durable=False
-    )
-    queue_name = channel.queue_declare('', exclusive=True).method.queue
-    channel.queue_bind(exchange='pubsub', queue=queue_name, routing_key='#')
-
-    print(' [*] Waiting for events. To exit press CTRL+C')
-
+class Slacky:
+    # when adding more state, please update load_state()
     openqa_jobs = collections.defaultdict(list)
-    project_re = re.compile(CONF['obs']['project_re'])
 
-    def callback(_, method, _unused, body) -> None:
-        """Generic dispatcher for events posted on the AMPQ channel."""
-        if method.routing_key.startswith('suse.openqa.job'):
-            handle_openqa_event(method, body)
-        elif method.routing_key.startswith('suse.obs.package'):
-            handle_obs_package_event(method, body)
-        elif not method.routing_key.startswith(
-            'suse.obs.metrics'
-        ) and 'Containers' in str(body):
-            LOG.info(f' [x] {method.routing_key!r}:{body!r}')
-
-    def handle_openqa_event(method, body):
+    def handle_openqa_event(self, method, body):
         """Find failed jobs without pending jobs and then post a message to slack."""
         msg = json.loads(body)
         build_id: str = msg.get('BUILD')
@@ -96,24 +76,24 @@ def listen_amqp_events():
             LOG.info(f' [x] {method.routing_key!r}:{msg!r}')
             if 'suse.openqa.job.create' in method.routing_key:
                 if msg.get('id'):
-                    openqa_jobs[build_id].append(
+                    self.openqa_jobs[build_id].append(
                         openQAJob(id=msg['id'], build=build_id, result='pending')
                     )
                     LOG.info(f"Job {build_id}/{msg['id']} created (pending)")
             elif 'suse.openqa.job.done' in method.routing_key:
-                if build_id not in openqa_jobs:
+                if build_id not in self.openqa_jobs:
                     # we might have been just restarted, insert it
-                    openqa_jobs[build_id].append(
+                    self.openqa_jobs[build_id].append(
                         openQAJob(id=msg['id'], build=build_id, result='pending')
                     )
-                if build_id in openqa_jobs:
-                    for job in openqa_jobs[build_id]:
+                if build_id in self.openqa_jobs:
+                    for job in self.openqa_jobs[build_id]:
                         if job.id == msg['id']:
                             job.result = msg['result']
 
                     # Find for any failures
                     results = collections.Counter(
-                        j.result for j in openqa_jobs[build_id]
+                        j.result for j in self.openqa_jobs[build_id]
                     )
                     LOG.info(f'Job ended - results: {results}')
                     if not results.get('pending') and results.get('failed'):
@@ -128,14 +108,14 @@ def listen_amqp_events():
 
                     if not results.get('pending'):
                         # Clear the build from pending jobs
-                        del openqa_jobs[build_id]
+                        del self.openqa_jobs[build_id]
 
-    def handle_obs_package_event(method, body):
+    def handle_obs_package_event(self, method, body):
         """Post any build failures for the configured projects to slack."""
         msg = json.loads(body)
 
         if (
-            not project_re.match(msg.get('project', ''))
+            not self.project_re.match(msg.get('project', ''))
             or msg.get('previouslyfailed') == '1'
         ):
             return
@@ -150,13 +130,62 @@ def listen_amqp_events():
                 f"{CONF['obs']['host']}{msg['project']}/{msg['package']}/{msg['repository']}/{msg['arch']}",
             )
 
-    channel.basic_consume(queue_name, callback, auto_ack=True)
-    channel.start_consuming()
+    def load_state(self) -> None:
+        state_file = Path(__file__).resolve().parent / 'state.pickle'
+        if state_file.is_file():
+            with open(Path(__file__).resolve().parent / 'state.pickle', 'rb') as f:
+                data = pickle.load(f)
+                import pprint
+
+                pprint.pprint(data.openqa_jobs)
+                # copy over the interesting data fields
+                self.openqa_jobs = data.openqa_jobs
+                LOG.info(f'Loaded state(openqa_jobs = {self.openqa_jobs})')
+
+    def save_state(self) -> None:
+        with open(Path(__file__).resolve().parent / 'state.pickle', 'wb') as f:
+            pickle.dump(self, f)
+            LOG.info('Saved state to state.pickle')
+
+    def run(self):
+        """pubsub subscribe to events posted on the AMPQ channel."""
+        channel: BlockingChannel = pika.BlockingConnection(
+            pika.URLParameters(CONF['DEFAULT']['listen_url'])
+        ).channel()
+        channel.exchange_declare(
+            exchange='pubsub', exchange_type='topic', passive=True, durable=False
+        )
+        queue_name = channel.queue_declare('', exclusive=True).method.queue
+        channel.queue_bind(exchange='pubsub', queue=queue_name, routing_key='#')
+
+        self.load_state()
+        self.project_re = re.compile(CONF['obs']['project_re'])
+
+        def callback(_, method, _unused, body) -> None:
+            """Generic dispatcher for events posted on the AMPQ channel."""
+            if method.routing_key.startswith('suse.openqa.job'):
+                self.handle_openqa_event(method, body)
+            elif method.routing_key.startswith('suse.obs.package'):
+                self.handle_obs_package_event(method, body)
+            elif not method.routing_key.startswith(
+                'suse.obs.metrics'
+            ) and 'Containers' in str(body):
+                LOG.info(f' [x] {method.routing_key!r}:{body!r}')
+
+        channel.basic_consume(queue_name, callback, auto_ack=True)
+        try:
+            print(' [*] Waiting for events. To exit press CTRL+C')
+            channel.start_consuming()
+        except KeyboardInterrupt:
+            channel.stop_consuming()
+            self.save_state()
+            LOG.info('State saved!')
+            sys.exit(0)
 
 
 def main():
     parse = argparse.ArgumentParser(
-        description='Bot to forward BCI openQA test failures to Slack'
+        description='Bot to forward BCI pipeline failures to Slack'
     )
     parse.add_argument('-d', '--debug', action='store_true')
 
@@ -168,7 +197,8 @@ def main():
 
     while True:
         try:
-            listen_amqp_events()
+            slacky = Slacky()
+            slacky.run()
         except (pika.exceptions.ConnectionClosed, pika.exceptions.AMQPHeartbeatTimeout):
             time.sleep(random.randint(10, 100))
 
