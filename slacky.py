@@ -56,10 +56,10 @@ class openQAJob:
     result: str
 
 
-def listen_openqa_events():
-    """pubsub subscribe to events posted on the openqa channel."""
+def listen_amqp_events():
+    """pubsub subscribe to events posted on the AMPQ channel."""
     channel: BlockingChannel = pika.BlockingConnection(
-        pika.URLParameters(CONF['openqa']['listen_url'])
+        pika.URLParameters(CONF['DEFAULT']['listen_url'])
     ).channel()
     channel.exchange_declare(
         exchange='pubsub', exchange_type='topic', passive=True, durable=False
@@ -165,7 +165,7 @@ def main():
 
     while True:
         try:
-            listen_openqa_events()
+            listen_amqp_events()
         except (pika.exceptions.ConnectionClosed, pika.exceptions.AMQPHeartbeatTimeout):
             time.sleep(random.randint(10, 100))
 
