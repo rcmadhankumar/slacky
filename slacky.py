@@ -68,7 +68,7 @@ def listen_amqp_events():
     queue_name = channel.queue_declare('', exclusive=True).method.queue
     channel.queue_bind(exchange='pubsub', queue=queue_name, routing_key='#')
 
-    print(' [*] Waiting for logs. To exit press CTRL+C')
+    print(' [*] Waiting for events. To exit press CTRL+C')
 
     openqa_jobs = collections.defaultdict(list)
     project_re = re.compile(CONF['obs']['project_re'])
@@ -82,14 +82,14 @@ def listen_amqp_events():
         elif not method.routing_key.startswith(
             'suse.obs.metrics'
         ) and 'Containers' in str(body):
-            print(' [x] %r:%r' % (method.routing_key, body))
+            LOG.info(f' [x] {method.routing_key!r}:{body!r}')
 
     def handle_openqa_event(method, body):
         msg = json.loads(body)
         build_id: str = msg.get('BUILD')
 
         if msg.get('group_id') in OPENQA_GROUPS_FILTER:
-            print(' [x] %r:%r' % (method.routing_key, msg))
+            LOG.info(f' [x] {method.routing_key!r}:{msg!r}')
             if 'suse.openqa.job.create' in method.routing_key:
                 if msg.get('id'):
                     openqa_jobs[build_id].append(
