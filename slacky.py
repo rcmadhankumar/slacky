@@ -70,45 +70,39 @@ class Slacky:
     def handle_openqa_event(self, method, body):
         """Find failed jobs without pending jobs and then post a message to slack."""
         msg = json.loads(body)
+        if msg.get('group_id') not in OPENQA_GROUPS_FILTER:
+            return
+
         build_id: str = msg.get('BUILD')
 
-        if msg.get('group_id') in OPENQA_GROUPS_FILTER:
-            LOG.info(f' [x] {method.routing_key!r}:{msg!r}')
-            if 'suse.openqa.job.create' in method.routing_key:
-                if msg.get('id'):
-                    self.openqa_jobs[build_id].append(
-                        openQAJob(id=msg['id'], build=build_id, result='pending')
-                    )
-                    LOG.info(f"Job {build_id}/{msg['id']} created (pending)")
-            elif 'suse.openqa.job.done' in method.routing_key:
-                if build_id not in self.openqa_jobs:
-                    # we might have been just restarted, insert it
-                    self.openqa_jobs[build_id].append(
-                        openQAJob(id=msg['id'], build=build_id, result='pending')
-                    )
-                if build_id in self.openqa_jobs:
-                    for job in self.openqa_jobs[build_id]:
-                        if job.id == msg['id']:
-                            job.result = msg['result']
+        LOG.info(f' [x] {method.routing_key!r}:{msg!r}')
+        if 'suse.openqa.job.create' in method.routing_key and msg.get('id'):
+            self.openqa_jobs[build_id].append(
+                openQAJob(id=msg['id'], build=build_id, result='pending')
+            )
+            LOG.info(f"Job {build_id}/{msg['id']} created (pending)")
+        elif (
+            'suse.openqa.job.done' in method.routing_key
+            and build_id in self.openqa_jobs
+        ):
+            for job in self.openqa_jobs[build_id]:
+                if job.id == msg['id']:
+                    job.result = msg['result']
 
-                    # Find for any failures
-                    results = collections.Counter(
-                        j.result for j in self.openqa_jobs[build_id]
-                    )
-                    LOG.info(f'Job ended - results: {results}')
-                    if not results.get('pending') and results.get('failed'):
-                        body: str = (
-                            f"Build {build_id} has {results['failed']} failed tests."
-                        )
-                        post_failure_notification_to_slack(
-                            ':openqa:',
-                            body,
-                            f"{CONF['openqa']['host']}tests/overview?build={build_id}&groupid={msg['group_id']}",
-                        )
+            # Find for any failures
+            results = collections.Counter(j.result for j in self.openqa_jobs[build_id])
+            LOG.info(f'Job ended - results: {results}')
+            if not results.get('pending') and results.get('failed'):
+                body: str = f"Build {build_id} has {results['failed']} failed tests."
+                post_failure_notification_to_slack(
+                    ':openqa:',
+                    body,
+                    f"{CONF['openqa']['host']}tests/overview?build={build_id}&groupid={msg['group_id']}",
+                )
 
-                    if not results.get('pending'):
-                        # Clear the build from pending jobs
-                        del self.openqa_jobs[build_id]
+            if not results.get('pending'):
+                # Clear the build from pending jobs
+                del self.openqa_jobs[build_id]
 
     def handle_obs_package_event(self, method, body):
         """Post any build failures for the configured projects to slack."""
