@@ -45,7 +45,10 @@ def post_failure_notification_to_slack(status, body, link_to_failure) -> None:
         headers={'Content-Type': 'application/json'},
         json={'status': status, 'body': body, 'link_to_failure': link_to_failure},
     )
-    resp.raise_for_status()
+    try:
+        resp.raise_for_status()
+    except requests.HTTPError as err:
+        LOG.error(f'Failed to post failure notification to slack: {err}')
 
 
 @dataclass
