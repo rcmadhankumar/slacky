@@ -187,7 +187,7 @@ class Slacky:
                     )
                     self.bs_requests[msg['number']] = bs_request
                     post_failure_notification_to_slack(
-                        ':announcement',
+                        ':announcement:',
                         f'{bs_request.targetproject} / {bs_request.targetpackage}: New request to review!',
                         f"{CONF['obs']['host']}/request/show/{bs_request.id}",
                     )
