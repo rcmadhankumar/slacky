@@ -90,7 +90,7 @@ class Slacky:
     # when adding more state, please update load_state()
     openqa_jobs = collections.defaultdict(list)
     bs_requests = collections.defaultdict(None)
-    repo_publishes = collections.defaultdict(repo_publish)
+    repo_publishes = {}
     last_interval_check = datetime.now()
 
     def handle_openqa_event(self, method, body):
@@ -154,20 +154,22 @@ class Slacky:
         """Post any build failures for the configured projects to slack."""
         msg = json.loads(body)
 
-        if not self.repo_re.match(msg.get('project')):
+        if not self.repo_re.match(msg.get('project')) or not msg.get('state'):
             return
 
         prjrepo = f"{msg['project']}/{msg['repo']}"
-        LOG.info(f'repo event for {prjrepo}')
+        LOG.info(f'repo event for {prjrepo}: {msg}')
         if msg['state'] == 'published':
-            del self.repo_publishes[prjrepo]
+            if prjrepo in self.repo_publishes:
+                del self.repo_publishes[prjrepo]
             return
 
-        with self.repo_publishes[prjrepo] as repo:
-            repo.project = msg['project']
-            repo.repository = msg['repo']
-            repo.state = msg['state']
-            repo.state_changed = datetime.now()
+        self.repo_publishes[prjrepo] = repo_publish(
+            project=msg['project'],
+            repo=msg['repo'],
+            state=msg['state'],
+            state_changed=datetime.now(),
+        )
 
     def handle_obs_request_event(self, method, body):
         """Warn when requests get declined, track them for hang detection."""
@@ -214,7 +216,7 @@ class Slacky:
                 and (datetime.now() - req.created_at).total_seconds() > 4 * 60 * 60
             ):
                 post_failure_notification_to_slack(
-                    ':announcement',
+                    ':announcement:',
                     f'{req.targetproject} / {req.targetpackage}: is waiting for review!',
                     f"{CONF['obs']['host']}/request/show/{req.id}",
                 )
