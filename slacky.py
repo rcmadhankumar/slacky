@@ -75,10 +75,22 @@ class bs_Request:
     is_announced: bool = False
 
 
+@dataclass
+class repo_publish:
+    """Track repository publishing"""
+
+    project: str
+    repository: str
+    state: str
+    state_changed: datetime
+    is_announced: bool = False
+
+
 class Slacky:
     # when adding more state, please update load_state()
     openqa_jobs = collections.defaultdict(list)
     bs_requests = collections.defaultdict(None)
+    repo_publishes = collections.defaultdict(repo_publish)
     last_interval_check = datetime.now()
 
     def handle_openqa_event(self, method, body):
@@ -138,6 +150,25 @@ class Slacky:
                 f"{CONF['obs']['host']}{msg['project']}/{msg['package']}/{msg['repository']}/{msg['arch']}",
             )
 
+    def handle_obs_repo_event(self, method, body):
+        """Post any build failures for the configured projects to slack."""
+        msg = json.loads(body)
+
+        if not self.repo_re.match(msg.get('project')):
+            return
+
+        prjrepo = f"{msg['project']}/{msg['repo']}"
+        LOG.info(f'repo event for {prjrepo}')
+        if msg['state'] == 'published':
+            del self.repo_publishes[prjrepo]
+            return
+
+        with self.repo_publishes[prjrepo] as repo:
+            repo.project = msg['project']
+            repo.repository = msg['repo']
+            repo.state = msg['state']
+            repo.state_changed = datetime.now()
+
     def handle_obs_request_event(self, method, body):
         """Warn when requests get declined, track them for hang detection."""
         msg = json.loads(body)
@@ -176,7 +207,7 @@ class Slacky:
                     del self.bs_requests[msg['number']]
 
     def check_pending_requests(self):
-        """Announce requests that are hanging around"""
+        """Announce for things that are hanging around"""
         for reqid, req in self.bs_requests.items():
             if (
                 not req.is_announced
@@ -189,21 +220,34 @@ class Slacky:
                 )
                 req.is_announced = True
 
+        for prjrepo, repo in self.repo_publishes.items():
+            if (
+                not repo.is_announced
+                and (datetime.now() - repo.state_changed).total_seconds() > 15 * 60
+            ):
+                post_failure_notification_to_slack(
+                    ':published:',
+                    f'{repo.project} / {repo.repository}: is not published after a while!',
+                    f"{CONF['obs']['host']}/repositories/{repo.project}/{repo.repository}",
+                )
+                repo.is_announced = True
+
     def load_state(self) -> None:
         """Restore persisted from a previously launched slacky"""
         state_file = Path(__file__).resolve().parent / 'state.pickle'
         if state_file.is_file():
             with open(Path(__file__).resolve().parent / 'state.pickle', 'rb') as f:
                 data = pickle.load(f)
-                import pprint
-
-                pprint.pprint(data.openqa_jobs)
-                # copy over the interesting data fields
+                # copy over the state from a previous launched slacky
                 self.openqa_jobs = data.openqa_jobs
+                LOG.info(f'Loaded state(openqa_jobs = {self.openqa_jobs})')
+                if data.bs_requests:
+                    self.bs_requests = data.bs_requests
+                    LOG.info(f'Loaded state(bs_requests = {self.bs_requests})')
                 self.bs_requests = data.bs_requests
-                LOG.info(
-                    f'Loaded state(openqa_jobs = {self.openqa_jobs}, bs_requests = {self.bs_requests})'
-                )
+                if data.repo_publishes:
+                    self.repo_publishes = data.repo_publishes
+                    LOG.info(f'Loaded state(repo_publish = {self.repo_publishes})')
 
     def save_state(self) -> None:
         """pickle the slacky state for future instance preservation"""
@@ -224,6 +268,7 @@ class Slacky:
 
         self.load_state()
         self.project_re = re.compile(CONF['obs']['project_re'])
+        self.repo_re = re.compile(CONF['obs']['repo_re'])
 
         def callback(_, method, _unused, body) -> None:
             """Generic dispatcher for events posted on the AMPQ channel."""
@@ -238,6 +283,8 @@ class Slacky:
                 self.handle_obs_package_event(method, body)
             elif method.routing_key.startswith('suse.obs.request'):
                 self.handle_obs_request_event(method, body)
+            elif method.routing_key.startswith('suse.obs.repo'):
+                self.handle_obs_repo_event(method, body)
             elif not method.routing_key.startswith(
                 'suse.obs.metrics'
             ) and 'Containers' in str(body):
