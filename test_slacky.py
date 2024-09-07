@@ -15,6 +15,7 @@ GNU General Public License for more details.
 SPDX-License-Identifier: GPL-2.0-or-later
 """
 
+import re
 from datetime import datetime
 from unittest.mock import patch
 
@@ -76,4 +77,46 @@ def test_pending_bs_requests_single(mock_post_failure_notification):
         ':request-changes:',
         'Request to project1 / package1 is still open ',
         'localhost/project/requests/project1',
+    )
+
+
+@patch('slacky.post_failure_notification_to_slack', return_value=None)
+def test_declined_bs_requests_single(mock_post_failure_notification):
+    bot = slacky.Slacky()
+    slacky.CONF = testing_CONF
+
+    body = '{"number": 1, "state": "new", "actions": [{"type": "submit", "targetproject": "SUSE:SLE-15-SP6:Update:BCI", "targetpackage": "test"}]}'
+    bot.handle_obs_request_event('suse.obs.request.create', body)
+    mock_post_failure_notification.assert_called_with(
+        ':announcement:',
+        'SUSE:SLE-15-SP6:Update:BCI / test: New request ',
+        'localhost/request/show/1',
+    )
+
+    body = '{"number": 1, "state": "declined"}'
+    bot.handle_obs_request_event('suse.obs.request.state_change', body)
+    mock_post_failure_notification.assert_called_with(
+        ':request-changes:',
+        'Request to SUSE:SLE-15-SP6:Update:BCI / test got declined.',
+        'localhost/request/show/1',
+    )
+
+
+@patch('slacky.post_failure_notification_to_slack', return_value=None)
+def test_obs_repo_publish(mock_post_failure_notification):
+    bot = slacky.Slacky()
+    bot.repo_re = re.compile(r'^SUSE:Containers:SLE-SERVER:')
+
+    slacky.CONF = testing_CONF
+
+    with patch('slacky.datetime') as mock_datetime:
+        mock_datetime.now.return_value = datetime(2023, 1, 2)
+        body = '{"state": "publishing", "project": "SUSE:Containers:SLE-SERVER:15", "repo": "containers"}'
+        bot.handle_obs_repo_event('suse.obs.repo', body)
+    assert len(bot.repo_publishes.keys()) == 1
+    bot.check_pending_requests()
+    mock_post_failure_notification.assert_called_with(
+        ':published:',
+        'SUSE:Containers:SLE-SERVER:15 / containers is not published after a while!',
+        'localhost/repositories/SUSE:Containers:SLE-SERVER:15/containers',
     )

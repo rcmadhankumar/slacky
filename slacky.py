@@ -97,7 +97,7 @@ class Slacky:
     repo_publishes = {}
     last_interval_check = datetime.now()
 
-    def handle_openqa_event(self, method, body):
+    def handle_openqa_event(self, routing_key, body):
         """Find failed jobs without pending jobs and then post a message to slack."""
         msg = json.loads(body)
         if msg.get('group_id') not in OPENQA_GROUPS_FILTER:
@@ -105,16 +105,13 @@ class Slacky:
 
         build_id: str = msg.get('BUILD')
 
-        LOG.info(f' [x] {method.routing_key!r}:{msg!r}')
-        if 'suse.openqa.job.create' in method.routing_key and msg.get('id'):
+        LOG.info(f' [x] {routing_key!r}:{msg!r}')
+        if 'suse.openqa.job.create' in routing_key and msg.get('id'):
             self.openqa_jobs[build_id].append(
                 openQAJob(id=msg['id'], build=build_id, result='pending')
             )
             LOG.info(f"Job {build_id}/{msg['id']} created (pending)")
-        elif (
-            'suse.openqa.job.done' in method.routing_key
-            and build_id in self.openqa_jobs
-        ):
+        elif 'suse.openqa.job.done' in routing_key and build_id in self.openqa_jobs:
             for job in self.openqa_jobs[build_id]:
                 if job.id == msg['id']:
                     job.result = msg['result']
@@ -134,7 +131,7 @@ class Slacky:
                 # Clear the build from pending jobs
                 del self.openqa_jobs[build_id]
 
-    def handle_obs_package_event(self, method, body):
+    def handle_obs_package_event(self, routing_key, body):
         """Post any build failures for the configured projects to slack."""
         msg = json.loads(body)
 
@@ -144,7 +141,7 @@ class Slacky:
         ):
             return
 
-        if 'suse.obs.package.build_fail' in method.routing_key:
+        if 'suse.obs.package.build_fail' in routing_key:
             LOG.info(
                 f"obs build fail {msg['project']}/{msg['package']}/{msg['repository']}/{msg['arch']}"
             )
@@ -154,7 +151,7 @@ class Slacky:
                 f"{CONF['obs']['host']}{msg['project']}/{msg['package']}/{msg['repository']}/{msg['arch']}",
             )
 
-    def handle_obs_repo_event(self, method, body):
+    def handle_obs_repo_event(self, routing_key, body):
         """Post any build failures for the configured projects to slack."""
         msg = json.loads(body)
 
@@ -175,11 +172,11 @@ class Slacky:
             state_changed=datetime.now(),
         )
 
-    def handle_obs_request_event(self, method, body):
+    def handle_obs_request_event(self, routing_key, body):
         """Warn when requests get declined, track them for hang detection."""
         msg = json.loads(body)
 
-        if 'suse.obs.request.create' in method.routing_key:
+        if 'suse.obs.request.create' in routing_key:
             for action in msg['actions']:
                 if action['type'] == 'submit' and 'BCI' in action['targetproject']:
                     LOG.info(
@@ -199,7 +196,7 @@ class Slacky:
                             f"{CONF['obs']['host']}/request/show/{bs_request.id}",
                         )
 
-        if 'suse.obs.request.state_change' in method.routing_key:
+        if 'suse.obs.request.state_change' in routing_key:
             bs_request = self.bs_requests.get(msg['number'])
             if bs_request:
                 if msg['state'] in ('declined',):
@@ -215,7 +212,7 @@ class Slacky:
 
     def check_pending_requests(self):
         """Announce for things that are hanging around"""
-        projects_with_requests = collections.Counter(
+        projects_old_requests = collections.Counter(
             (
                 req.targetproject
                 for req in self.bs_requests.values()
@@ -225,7 +222,7 @@ class Slacky:
                 )
             )
         )
-        for prj, reqcount in projects_with_requests.most_common():
+        for prj, reqcount in projects_old_requests.most_common():
             pkgs = set()
             for req in self.bs_requests.values():
                 if req.targetproject == prj and not req.is_announced:
@@ -246,7 +243,7 @@ class Slacky:
             ):
                 post_failure_notification_to_slack(
                     ':published:',
-                    f'{repo.project} / {repo.repository}: is not published after a while!',
+                    f'{repo.project} / {repo.repository} is not published after a while!',
                     f"{CONF['obs']['host']}/repositories/{repo.project}/{repo.repository}",
                 )
                 repo.is_announced = True
@@ -292,22 +289,23 @@ class Slacky:
         def callback(_, method, _unused, body) -> None:
             """Generic dispatcher for events posted on the AMPQ channel."""
 
-            if (datetime.now() - self.last_interval_check).total_seconds() > 0:
+            if (datetime.now() - self.last_interval_check).total_seconds() > 120:
                 self.check_pending_requests()
                 self.last_interval_check = datetime.now()
 
-            if method.routing_key.startswith('suse.openqa.job'):
-                self.handle_openqa_event(method, body)
-            elif method.routing_key.startswith('suse.obs.package'):
-                self.handle_obs_package_event(method, body)
-            elif method.routing_key.startswith('suse.obs.request'):
-                self.handle_obs_request_event(method, body)
-            elif method.routing_key.startswith('suse.obs.repo'):
-                self.handle_obs_repo_event(method, body)
-            elif not method.routing_key.startswith(
-                'suse.obs.metrics'
-            ) and 'Containers' in str(body):
-                LOG.info(f' [x] {method.routing_key!r}:{body!r}')
+            routing_key = method.routing_key
+            if routing_key.startswith('suse.openqa.job'):
+                self.handle_openqa_event(routing_key, body)
+            elif routing_key.startswith('suse.obs.package'):
+                self.handle_obs_package_event(routing_key, body)
+            elif routing_key.startswith('suse.obs.request'):
+                self.handle_obs_request_event(routing_key, body)
+            elif routing_key.startswith('suse.obs.repo'):
+                self.handle_obs_repo_event(routing_key, body)
+            elif not routing_key.startswith('suse.obs.metrics') and 'Containers' in str(
+                body
+            ):
+                LOG.info(f' [x] {routing_key!r}:{body!r}')
 
         channel.basic_consume(queue_name, callback, auto_ack=True)
         try:
