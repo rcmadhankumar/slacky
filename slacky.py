@@ -94,8 +94,9 @@ class Slacky:
     # when adding more state, please update load_state()
     openqa_jobs = collections.defaultdict(list)
     bs_requests = collections.defaultdict(None)
-    repo_publishes = {}
-    last_interval_check = datetime.now()
+    repo_publishes: dict = {}
+    container_publishes: dict = {}
+    last_interval_check: datetime = datetime.now()
 
     def handle_openqa_event(self, routing_key, body):
         """Find failed jobs without pending jobs and then post a message to slack."""
@@ -199,6 +200,7 @@ class Slacky:
         if 'suse.obs.request.state_change' in routing_key:
             bs_request = self.bs_requests.get(msg['number'])
             if bs_request:
+                bs_request.state = msg['state']
                 if msg['state'] in ('declined',):
                     post_failure_notification_to_slack(
                         ':request-changes:',
@@ -209,6 +211,19 @@ class Slacky:
                 if msg['state'] in ('accepted', 'revoked', 'superseded'):
                     LOG.info(f"request {msg['number']} entered final state.")
                     del self.bs_requests[msg['number']]
+
+    def handle_container_event(self, routing_key, body):
+        """Warn when a :latest tag didn't get published a long while."""
+        msg = json.loads(body)
+
+        if (
+            'suse.obs.container.published' in routing_key
+            and msg.get('container')
+            and ':latest' in msg.get('container')
+        ):
+            LOG.info(f"Container {msg['container']} published.")
+            repo = msg['container'].partition(':')[0]
+            self.container_publishes[repo] = datetime.now()
 
     def check_pending_requests(self):
         """Announce for things that are hanging around"""
@@ -248,6 +263,18 @@ class Slacky:
                 )
                 repo.is_announced = True
 
+        to_delete: list = []
+        for container, publishdate in self.container_publishes.items():
+            if (datetime.now() - publishdate).total_seconds() > 15 * 60 * 60:
+                post_failure_notification_to_slack(
+                    ':question:',
+                    f':latest tag on `{container}` was not published for a while!',
+                    '',
+                )
+                to_delete.append(container)
+        for container in to_delete:
+            del self.container_publishes[container]
+
     def load_state(self) -> None:
         """Restore persisted from a previously launched slacky"""
         state_file = Path(__file__).resolve().parent / 'state.pickle'
@@ -264,6 +291,11 @@ class Slacky:
                 if data.repo_publishes:
                     self.repo_publishes = data.repo_publishes
                     LOG.info(f'Loaded state(repo_publish = {self.repo_publishes})')
+                if data.container_publishes:
+                    self.container_publishes = data.container_publishes
+                    LOG.info(
+                        f'Loaded state(container_publishes = {self.container_publishes})'
+                    )
 
     def save_state(self) -> None:
         """pickle the slacky state for future instance preservation"""
@@ -302,6 +334,8 @@ class Slacky:
                 self.handle_obs_request_event(routing_key, body)
             elif routing_key.startswith('suse.obs.repo'):
                 self.handle_obs_repo_event(routing_key, body)
+            elif routing_key.startswith('suse.obs.container'):
+                self.handle_container_event(routing_key, body)
             elif not routing_key.startswith('suse.obs.metrics') and 'Containers' in str(
                 body
             ):
