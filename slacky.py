@@ -44,6 +44,10 @@ def post_failure_notification_to_slack(status, body, link_to_failure) -> None:
         f'post_failure_notification_to_slack({status}, {body}, {link_to_failure})'
     )
 
+    if not CONF['DEFAULT'].get('slack_trigger_url'):
+        LOG.debug('Slack notifications are disabled')
+        return
+
     resp = requests.post(
         url=CONF['DEFAULT']['slack_trigger_url'],
         headers={'Content-Type': 'application/json'},
@@ -166,7 +170,7 @@ class Slacky:
 
         self.repo_publishes[prjrepo] = repo_publish(
             project=msg['project'],
-            repo=msg['repo'],
+            repository=msg['repo'],
             state=msg['state'],
             state_changed=datetime.now(),
         )
@@ -188,11 +192,12 @@ class Slacky:
                         created_at=datetime.now(),
                     )
                     self.bs_requests[msg['number']] = bs_request
-                    post_failure_notification_to_slack(
-                        ':announcement:',
-                        f'{bs_request.targetproject} / {bs_request.targetpackage}: New request to review!',
-                        f"{CONF['obs']['host']}/request/show/{bs_request.id}",
-                    )
+                    if True:
+                        post_failure_notification_to_slack(
+                            ':announcement:',
+                            f'{bs_request.targetproject} / {bs_request.targetpackage}: New request ',
+                            f"{CONF['obs']['host']}/request/show/{bs_request.id}",
+                        )
 
         if 'suse.obs.request.state_change' in method.routing_key:
             bs_request = self.bs_requests.get(msg['number'])
@@ -210,17 +215,29 @@ class Slacky:
 
     def check_pending_requests(self):
         """Announce for things that are hanging around"""
-        for reqid, req in self.bs_requests.items():
-            if (
-                not req.is_announced
-                and (datetime.now() - req.created_at).total_seconds() > 4 * 60 * 60
-            ):
-                post_failure_notification_to_slack(
-                    ':announcement:',
-                    f'{req.targetproject} / {req.targetpackage}: is waiting for review!',
-                    f"{CONF['obs']['host']}/request/show/{req.id}",
+        projects_with_requests = collections.Counter(
+            (
+                req.targetproject
+                for req in self.bs_requests.values()
+                if (
+                    not req.is_announced
+                    and (datetime.now() - req.created_at).total_seconds() > 4 * 60 * 60
                 )
-                req.is_announced = True
+            )
+        )
+        for prj, reqcount in projects_with_requests.most_common():
+            pkgs = set()
+            for req in self.bs_requests.values():
+                if req.targetproject == prj and not req.is_announced:
+                    pkgs.add(req.targetpackage)
+                    req.is_announced = True
+            post_failure_notification_to_slack(
+                ':request-changes:',
+                f'{reqcount} open requests to {prj} / {", ".join(sorted(pkgs))} '
+                if reqcount > 1
+                else f'Request to {prj} / {", ".join(pkgs)} is still open ',
+                f"{CONF['obs']['host']}/project/requests/{prj}",
+            )
 
         for prjrepo, repo in self.repo_publishes.items():
             if (
