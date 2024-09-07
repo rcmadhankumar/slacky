@@ -35,7 +35,7 @@ import requests
 from pika.adapters.blocking_connection import BlockingChannel
 
 CONF = configparser.ConfigParser(strict=False)
-OPENQA_GROUPS_FILTER: tuple[int] = (538, 475, 443, 442, 428)
+OPENQA_GROUPS_FILTER: tuple[int] = (586, 582, 538, 475, 453, 445, 444, 443, 442, 428)
 
 
 def post_failure_notification_to_slack(status, body, link_to_failure) -> None:
