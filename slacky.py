@@ -37,6 +37,10 @@ from pika.adapters.blocking_connection import BlockingChannel
 CONF = configparser.ConfigParser(strict=False)
 OPENQA_GROUPS_FILTER: tuple[int] = (586, 582, 538, 475, 453, 445, 444, 443, 442, 428)
 
+HANGING_REQUESTS_SEC = 4 * 60 * 60
+HANGING_REPO_PUBLISH_SEC = 15 * 60
+HANGING_CONTAINER_TAG_SEC = 10 * 24 * 60 * 60
+
 
 def post_failure_notification_to_slack(status, body, link_to_failure) -> None:
     """Post a message to slack with the given parameters by using a webhook."""
@@ -77,6 +81,7 @@ class bs_Request:
     targetpackage: str
     created_at: datetime
     is_announced: bool = False
+    is_create_announced: bool = False
 
 
 @dataclass
@@ -190,12 +195,6 @@ class Slacky:
                         created_at=datetime.now(),
                     )
                     self.bs_requests[msg['number']] = bs_request
-                    if True:
-                        post_failure_notification_to_slack(
-                            ':announcement:',
-                            f'{bs_request.targetproject} / {bs_request.targetpackage}: New request ',
-                            f"{CONF['obs']['host']}/request/show/{bs_request.id}",
-                        )
 
         if 'suse.obs.request.state_change' in routing_key:
             bs_request = self.bs_requests.get(msg['number'])
@@ -208,6 +207,7 @@ class Slacky:
                         f"{CONF['obs']['host']}/request/show/{bs_request.id}",
                     )
                     bs_request.is_announced = True
+                    bs_request.is_create_announced = True
                 if msg['state'] in ('accepted', 'revoked', 'superseded'):
                     LOG.info(f"request {msg['number']} entered final state.")
                     del self.bs_requests[msg['number']]
@@ -232,13 +232,15 @@ class Slacky:
 
     def check_pending_requests(self):
         """Announce for things that are hanging around"""
+
         projects_old_requests = collections.Counter(
             (
                 req.targetproject
                 for req in self.bs_requests.values()
                 if (
                     not req.is_announced
-                    and (datetime.now() - req.created_at).total_seconds() > 4 * 60 * 60
+                    and (datetime.now() - req.created_at).total_seconds()
+                    > HANGING_REQUESTS_SEC
                 )
             )
         )
@@ -248,6 +250,7 @@ class Slacky:
                 if req.targetproject == prj and not req.is_announced:
                     pkgs.add(req.targetpackage)
                     req.is_announced = True
+                    req.is_create_announced = True
             post_failure_notification_to_slack(
                 ':request-changes:',
                 f'{reqcount} open requests to {prj} / {", ".join(sorted(pkgs))} '
@@ -256,10 +259,43 @@ class Slacky:
                 f"{CONF['obs']['host']}/project/requests/{prj}",
             )
 
+        projects_created_requests = collections.Counter(
+            (
+                req.targetproject
+                for req in self.bs_requests.values()
+                if not req.is_create_announced
+            )
+        )
+        for prj, reqcount in projects_created_requests.most_common():
+            newest_request_age: int = HANGING_REQUESTS_SEC
+            for req in self.bs_requests.values():
+                if req.targetproject == prj and not req.is_create_announced:
+                    if (
+                        datetime.now() - req.created_at
+                    ).total_seconds() < newest_request_age:
+                        newest_request_age = (
+                            datetime.now() - req.created_at
+                        ).total_seconds()
+            # If we haven't seen a new request in a while, time to announce
+            if 60 < newest_request_age < HANGING_REQUESTS_SEC:
+                pkgs = set()
+                for req in self.bs_requests.values():
+                    if req.targetproject == prj and not req.is_create_announced:
+                        pkgs.add(req.targetpackage)
+                        req.is_create_announced = True
+                post_failure_notification_to_slack(
+                    ':announcement:',
+                    f'{reqcount} open requests to {prj} / {", ".join(sorted(pkgs))} for review. '
+                    if reqcount > 1
+                    else f'New request to {prj} / {", ".join(pkgs)} available for review. ',
+                    f"{CONF['obs']['host']}/project/requests/{prj}",
+                )
+
         for prjrepo, repo in self.repo_publishes.items():
             if (
                 not repo.is_announced
-                and (datetime.now() - repo.state_changed).total_seconds() > 15 * 60
+                and (datetime.now() - repo.state_changed).total_seconds()
+                > HANGING_REPO_PUBLISH_SEC
             ):
                 post_failure_notification_to_slack(
                     ':published:',
@@ -270,7 +306,9 @@ class Slacky:
 
         to_delete: list = []
         for container, publishdate in self.container_publishes.items():
-            if (datetime.now() - publishdate).total_seconds() > 15 * 60 * 60:
+            if (
+                datetime.now() - publishdate
+            ).total_seconds() > HANGING_CONTAINER_TAG_SEC:
                 repo, _, tag = container.partition(':')
                 post_failure_notification_to_slack(
                     ':question:',

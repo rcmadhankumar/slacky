@@ -15,8 +15,8 @@ GNU General Public License for more details.
 SPDX-License-Identifier: GPL-2.0-or-later
 """
 
+import datetime
 import re
-from datetime import datetime
 from unittest.mock import patch
 
 import slacky
@@ -36,17 +36,17 @@ def test_pending_bs_requests_grouping(mock_post_failure_notification):
             id=1,
             targetproject='project1',
             targetpackage='package1',
-            created_at=datetime(2023, 1, 2),
+            created_at=datetime.datetime(2023, 1, 2),
         ),
         2: slacky.bs_Request(
             id=2,
             targetproject='project1',
             targetpackage='package2',
-            created_at=datetime(2023, 1, 3),
+            created_at=datetime.datetime(2023, 1, 3),
         ),
     }
 
-    bot.last_interval_check = datetime(2023, 1, 1)
+    bot.last_interval_check = datetime.datetime(2023, 1, 1)
     bot.check_pending_requests()
     mock_post_failure_notification.assert_called_once_with(
         ':request-changes:',
@@ -67,15 +67,80 @@ def test_pending_bs_requests_single(mock_post_failure_notification):
             id=1,
             targetproject='project1',
             targetpackage='package1',
-            created_at=datetime(2023, 1, 2),
+            created_at=datetime.datetime(2023, 1, 2),
         )
     }
+    bot.last_interval_check = datetime.datetime(2023, 1, 1)
+    with patch('slacky.datetime') as mock_datetime:
+        mock_datetime.now.return_value = datetime.datetime(
+            2023, 1, 2
+        ) + datetime.timedelta(seconds=90)
+        bot.check_pending_requests()
 
-    bot.last_interval_check = datetime(2023, 1, 1)
+        mock_post_failure_notification.assert_called_once_with(
+            ':announcement:',
+            'New request to project1 / package1 available for review. ',
+            'localhost/project/requests/project1',
+        )
+        mock_post_failure_notification.reset_mock()
+        mock_datetime.now.return_value = datetime.datetime(
+            2023, 1, 2
+        ) + datetime.timedelta(seconds=300)
+        bot.check_pending_requests()
+        mock_post_failure_notification.assert_not_called()
+
+    bot.last_interval_check = datetime.datetime(2023, 1, 1)
     bot.check_pending_requests()
     mock_post_failure_notification.assert_called_once_with(
         ':request-changes:',
         'Request to project1 / package1 is still open ',
+        'localhost/project/requests/project1',
+    )
+
+
+@patch('slacky.post_failure_notification_to_slack', return_value=None)
+def test_pending_bs_requests_multiple(mock_post_failure_notification):
+    bot = slacky.Slacky()
+    slacky.CONF = testing_CONF
+
+    bot.bs_requests = {
+        1: slacky.bs_Request(
+            id=1,
+            targetproject='project1',
+            targetpackage='package1',
+            created_at=datetime.datetime(2023, 1, 2),
+        ),
+        2: slacky.bs_Request(
+            id=2,
+            targetproject='project1',
+            targetpackage='package2',
+            created_at=datetime.datetime(2023, 1, 2),
+        ),
+    }
+    bot.last_interval_check = datetime.datetime(2023, 1, 1)
+    with patch('slacky.datetime') as mock_datetime:
+        mock_datetime.now.return_value = datetime.datetime(
+            2023, 1, 2
+        ) + datetime.timedelta(seconds=90)
+        bot.check_pending_requests()
+
+        mock_post_failure_notification.assert_called_once_with(
+            ':announcement:',
+            '2 open requests to project1 / package1, package2 for review. ',
+            'localhost/project/requests/project1',
+        )
+        mock_post_failure_notification.reset_mock()
+        mock_datetime.now.return_value = datetime.datetime(
+            2023, 1, 2
+        ) + datetime.timedelta(seconds=300)
+        bot.check_pending_requests()
+        mock_post_failure_notification.assert_not_called()
+
+    bot.last_interval_check = datetime.datetime(2023, 1, 1)
+    bot.check_pending_requests()
+    mock_post_failure_notification.assert_called_once_with(
+        ':request-changes:',
+        '2 open requests to project1 / package1, package2 ',
         'localhost/project/requests/project1',
     )
 
@@ -87,11 +152,8 @@ def test_declined_bs_requests_single(mock_post_failure_notification):
 
     body = '{"number": 1, "state": "new", "actions": [{"type": "submit", "targetproject": "SUSE:SLE-15-SP6:Update:BCI", "targetpackage": "test"}]}'
     bot.handle_obs_request_event('suse.obs.request.create', body)
-    mock_post_failure_notification.assert_called_with(
-        ':announcement:',
-        'SUSE:SLE-15-SP6:Update:BCI / test: New request ',
-        'localhost/request/show/1',
-    )
+
+    mock_post_failure_notification.assert_not_called()
 
     body = '{"number": 1, "state": "review"}'
     bot.handle_obs_request_event('suse.obs.request.state_change', body)
@@ -112,7 +174,7 @@ def test_obs_repo_publish(mock_post_failure_notification):
     slacky.CONF = testing_CONF
 
     with patch('slacky.datetime') as mock_datetime:
-        mock_datetime.now.return_value = datetime(2023, 1, 2)
+        mock_datetime.now.return_value = datetime.datetime(2023, 1, 2)
         body = '{"state": "publishing", "project": "SUSE:Containers:SLE-SERVER:15", "repo": "containers"}'
         bot.handle_obs_repo_event('suse.obs.repo', body)
     assert len(bot.repo_publishes.keys()) == 1
@@ -132,7 +194,7 @@ def test_obs_container_publish(mock_post_failure_notification):
     slacky.CONF = testing_CONF
 
     with patch('slacky.datetime') as mock_datetime:
-        mock_datetime.now.return_value = datetime(2023, 1, 2)
+        mock_datetime.now.return_value = datetime.datetime(2023, 1, 2)
         body = '{"project":"SUSE:Containers:SLE-SERVER:15","repo":"standard","buildid":"1","container":"registry.suse.com/suse/sle15:15.5"}'
         bot.handle_container_event('suse.obs.container.published', body)
     bot.check_pending_requests()
