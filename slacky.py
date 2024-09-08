@@ -233,6 +233,7 @@ class Slacky:
     def check_pending_requests(self):
         """Announce for things that are hanging around"""
 
+        # Announce request that are open for a long time
         projects_old_requests = collections.Counter(
             (
                 req.targetproject
@@ -259,6 +260,7 @@ class Slacky:
                 f"{CONF['obs']['host']}/project/requests/{prj}",
             )
 
+        # Announce requests that have been recently created
         projects_created_requests = collections.Counter(
             (
                 req.targetproject
@@ -291,6 +293,7 @@ class Slacky:
                     f"{CONF['obs']['host']}/project/requests/{prj}",
                 )
 
+        # Announce hanging repo publishes
         for prjrepo, repo in self.repo_publishes.items():
             if (
                 not repo.is_announced
@@ -304,6 +307,7 @@ class Slacky:
                 )
                 repo.is_announced = True
 
+        # Announce container tags that have not been published for a while
         to_delete: list = []
         for container, publishdate in self.container_publishes.items():
             if (
