@@ -216,14 +216,19 @@ class Slacky:
         """Warn when a :latest tag didn't get published a long while."""
         msg = json.loads(body)
 
-        if (
-            'suse.obs.container.published' in routing_key
-            and msg.get('container')
-            and ':latest' in msg.get('container')
-        ):
+        if 'suse.obs.container.published' in routing_key:
+            if not msg.get('container') or not self.repo_re.match(
+                msg.get('project', '')
+            ):
+                return
+
+            repository, _, tag = msg['container'].partition(':')
+            tag_version = tag.partition('-')[0]
+            if tag_version.count('.') >= 2:
+                return
+
             LOG.info(f"Container {msg['container']} published.")
-            repo = msg['container'].partition(':')[0]
-            self.container_publishes[repo] = datetime.now()
+            self.container_publishes[msg['container']] = datetime.now()
 
     def check_pending_requests(self):
         """Announce for things that are hanging around"""
@@ -266,9 +271,10 @@ class Slacky:
         to_delete: list = []
         for container, publishdate in self.container_publishes.items():
             if (datetime.now() - publishdate).total_seconds() > 15 * 60 * 60:
+                repo, _, tag = container.partition(':')
                 post_failure_notification_to_slack(
                     ':question:',
-                    f':latest tag on `{container}` was not published for a while!',
+                    f'tag {tag} on {repo} was not published for a while!',
                     '',
                 )
                 to_delete.append(container)

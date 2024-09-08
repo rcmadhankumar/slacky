@@ -133,11 +133,11 @@ def test_obs_container_publish(mock_post_failure_notification):
 
     with patch('slacky.datetime') as mock_datetime:
         mock_datetime.now.return_value = datetime(2023, 1, 2)
-        body = '{"project":"SUSE:Containers:SLE-SERVER:15","repo":"standard","buildid":"1","container":"registry.suse.com/suse/sle15:latest"}'
+        body = '{"project":"SUSE:Containers:SLE-SERVER:15","repo":"standard","buildid":"1","container":"registry.suse.com/suse/sle15:15.5"}'
         bot.handle_container_event('suse.obs.container.published', body)
     bot.check_pending_requests()
     mock_post_failure_notification.assert_called_with(
         ':question:',
-        ':latest tag on `registry.suse.com/suse/sle15` was not published for a while!',
+        'tag 15.5 on registry.suse.com/suse/sle15 was not published for a while!',
         '',
     )
