@@ -26,6 +26,7 @@ import random
 import re
 import sys
 import time
+import urllib.parse
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -130,7 +131,10 @@ class Slacky:
                 post_failure_notification_to_slack(
                     ':openqa:',
                     body,
-                    f"{CONF['openqa']['host']}/tests/overview?build={build_id}&groupid={msg['group_id']}",
+                    urllib.parse.urljoin(
+                        CONF['openqa']['host'],
+                        f"/tests/overview?build={build_id}&groupid={msg['group_id']}",
+                    ),
                 )
 
             if not results.get('pending'):
@@ -154,7 +158,10 @@ class Slacky:
             post_failure_notification_to_slack(
                 ':obs:',
                 f"{msg['project']}/{msg['package']}/{msg['repository']}/{msg['arch']} failed to build.",
-                f"{CONF['obs']['host']}/{msg['project']}/{msg['package']}/{msg['repository']}/{msg['arch']}",
+                urllib.parse.urljoin(
+                    CONF['obs']['host'],
+                    f"/{msg['project']}/{msg['package']}/{msg['repository']}/{msg['arch']}",
+                ),
             )
 
     def handle_obs_repo_event(self, routing_key, body):
@@ -204,7 +211,9 @@ class Slacky:
                     post_failure_notification_to_slack(
                         ':request-changes:',
                         f'Request to {bs_request.targetproject} / {bs_request.targetpackage} got declined.',
-                        f"{CONF['obs']['host']}/request/show/{bs_request.id}",
+                        urllib.parse.urljoin(
+                            CONF['obs']['host'], f'/request/show/{bs_request.id}'
+                        ),
                     )
                     bs_request.is_announced = True
                     bs_request.is_create_announced = True
@@ -256,7 +265,7 @@ class Slacky:
                 f'{reqcount} open requests to {prj} / {", ".join(sorted(pkgs))} '
                 if reqcount > 1
                 else f'Request to {prj} / {", ".join(pkgs)} is still open ',
-                f"{CONF['obs']['host']}/project/requests/{prj}",
+                urllib.parse.urljoin(CONF['obs']['host'], f'/project/requests/{prj}'),
             )
 
         # Announce requests that have been recently created
@@ -288,7 +297,9 @@ class Slacky:
                     f'{reqcount} open requests to {prj} / {", ".join(sorted(pkgs))} for review. '
                     if reqcount > 1
                     else f'New request to {prj} / {", ".join(pkgs)} available for review. ',
-                    f"{CONF['obs']['host']}/project/requests/{prj}",
+                    urllib.parse.urljoin(
+                        CONF['obs']['host'], f'/project/requests/{prj}'
+                    ),
                 )
 
         # Announce hanging repo publishes
@@ -301,7 +312,10 @@ class Slacky:
                 post_failure_notification_to_slack(
                     ':published:',
                     f'{repo.project} / {repo.repository} is not published after a while!',
-                    f"{CONF['obs']['host']}/repository_state/{repo.project}/{repo.repository}",
+                    urllib.parse.urljoin(
+                        CONF['obs']['host'],
+                        f'/repository_state/{repo.project}/{repo.repository}',
+                    ),
                 )
                 repo.is_announced = True
 

@@ -23,7 +23,7 @@ import slacky
 
 testing_CONF = {}
 testing_CONF['DEFAULT'] = {}
-testing_CONF['obs'] = {'host': 'localhost'}
+testing_CONF['obs'] = {'host': 'https://localhost/'}
 
 
 @patch('slacky.post_failure_notification_to_slack', return_value=None)
@@ -51,7 +51,7 @@ def test_pending_bs_requests_grouping(mock_post_failure_notification):
     mock_post_failure_notification.assert_called_once_with(
         ':request-changes:',
         '2 open requests to project1 / package1, package2 ',
-        'localhost/project/requests/project1',
+        'https://localhost/project/requests/project1',
     )
     for _, req in bot.bs_requests.items():
         assert req.is_announced
@@ -80,7 +80,7 @@ def test_pending_bs_requests_single(mock_post_failure_notification):
         mock_post_failure_notification.assert_called_once_with(
             ':announcement:',
             'New request to project1 / package1 available for review. ',
-            'localhost/project/requests/project1',
+            'https://localhost/project/requests/project1',
         )
         mock_post_failure_notification.reset_mock()
         mock_datetime.now.return_value = datetime.datetime(
@@ -94,7 +94,7 @@ def test_pending_bs_requests_single(mock_post_failure_notification):
     mock_post_failure_notification.assert_called_once_with(
         ':request-changes:',
         'Request to project1 / package1 is still open ',
-        'localhost/project/requests/project1',
+        'https://localhost/project/requests/project1',
     )
 
 
@@ -127,7 +127,7 @@ def test_pending_bs_requests_multiple(mock_post_failure_notification):
         mock_post_failure_notification.assert_called_once_with(
             ':announcement:',
             '2 open requests to project1 / package1, package2 for review. ',
-            'localhost/project/requests/project1',
+            'https://localhost/project/requests/project1',
         )
         mock_post_failure_notification.reset_mock()
         mock_datetime.now.return_value = datetime.datetime(
@@ -141,7 +141,7 @@ def test_pending_bs_requests_multiple(mock_post_failure_notification):
     mock_post_failure_notification.assert_called_once_with(
         ':request-changes:',
         '2 open requests to project1 / package1, package2 ',
-        'localhost/project/requests/project1',
+        'https://localhost/project/requests/project1',
     )
 
 
@@ -162,7 +162,7 @@ def test_declined_bs_requests_single(mock_post_failure_notification):
     mock_post_failure_notification.assert_called_with(
         ':request-changes:',
         'Request to SUSE:SLE-15-SP6:Update:BCI / test got declined.',
-        'localhost/request/show/1',
+        'https://localhost/request/show/1',
     )
 
 
@@ -182,7 +182,7 @@ def test_obs_repo_publish(mock_post_failure_notification):
     mock_post_failure_notification.assert_called_with(
         ':published:',
         'SUSE:Containers:SLE-SERVER:15 / containers is not published after a while!',
-        'localhost/repository_state/SUSE:Containers:SLE-SERVER:15/containers',
+        'https://localhost/repository_state/SUSE:Containers:SLE-SERVER:15/containers',
     )
 
 
