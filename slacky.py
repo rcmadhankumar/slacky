@@ -130,7 +130,7 @@ class Slacky:
                 post_failure_notification_to_slack(
                     ':openqa:',
                     body,
-                    f"{CONF['openqa']['host']}tests/overview?build={build_id}&groupid={msg['group_id']}",
+                    f"{CONF['openqa']['host']}/tests/overview?build={build_id}&groupid={msg['group_id']}",
                 )
 
             if not results.get('pending'):
@@ -154,7 +154,7 @@ class Slacky:
             post_failure_notification_to_slack(
                 ':obs:',
                 f"{msg['project']}/{msg['package']}/{msg['repository']}/{msg['arch']} failed to build.",
-                f"{CONF['obs']['host']}{msg['project']}/{msg['package']}/{msg['repository']}/{msg['arch']}",
+                f"{CONF['obs']['host']}/{msg['project']}/{msg['package']}/{msg['repository']}/{msg['arch']}",
             )
 
     def handle_obs_repo_event(self, routing_key, body):
