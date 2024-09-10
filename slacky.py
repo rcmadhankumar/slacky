@@ -234,7 +234,7 @@ class Slacky:
         """Announce for things that are hanging around"""
 
         # Announce request that are open for a long time
-        projects_old_requests = collections.Counter(
+        for prj, reqcount in collections.Counter(
             (
                 req.targetproject
                 for req in self.bs_requests.values()
@@ -244,8 +244,7 @@ class Slacky:
                     > HANGING_REQUESTS_SEC
                 )
             )
-        )
-        for prj, reqcount in projects_old_requests.most_common():
+        ).most_common():
             pkgs = set()
             for req in self.bs_requests.values():
                 if req.targetproject == prj and not req.is_announced:
@@ -261,14 +260,13 @@ class Slacky:
             )
 
         # Announce requests that have been recently created
-        projects_created_requests = collections.Counter(
+        for prj, reqcount in collections.Counter(
             (
                 req.targetproject
                 for req in self.bs_requests.values()
                 if not req.is_create_announced
             )
-        )
-        for prj, reqcount in projects_created_requests.most_common():
+        ).most_common():
             newest_request_age: int = HANGING_REQUESTS_SEC
             for req in self.bs_requests.values():
                 if req.targetproject == prj and not req.is_create_announced:
@@ -294,7 +292,7 @@ class Slacky:
                 )
 
         # Announce hanging repo publishes
-        for prjrepo, repo in self.repo_publishes.items():
+        for repo in self.repo_publishes.values():
             if (
                 not repo.is_announced
                 and (datetime.now() - repo.state_changed).total_seconds()
@@ -308,19 +306,18 @@ class Slacky:
                 repo.is_announced = True
 
         # Announce container tags that have not been published for a while
-        to_delete: list = []
-        for container, publishdate in self.container_publishes.items():
+        for container in [
+            c
+            for c, publishdate in self.container_publishes.items()
             if (
-                datetime.now() - publishdate
-            ).total_seconds() > HANGING_CONTAINER_TAG_SEC:
-                repo, _, tag = container.partition(':')
-                post_failure_notification_to_slack(
-                    ':question:',
-                    f'tag {tag} on {repo} was not published for a while!',
-                    '',
-                )
-                to_delete.append(container)
-        for container in to_delete:
+                (datetime.now() - publishdate).total_seconds()
+                > HANGING_CONTAINER_TAG_SEC
+            )
+        ]:
+            repo, _, tag = container.partition(':')
+            post_failure_notification_to_slack(
+                ':question:', f'tag {tag} on {repo} was not published for a while!', ''
+            )
             del self.container_publishes[container]
 
     def load_state(self) -> None:
