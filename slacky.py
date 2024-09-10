@@ -301,7 +301,7 @@ class Slacky:
                 post_failure_notification_to_slack(
                     ':published:',
                     f'{repo.project} / {repo.repository} is not published after a while!',
-                    f"{CONF['obs']['host']}/repositories/{repo.project}/{repo.repository}",
+                    f"{CONF['obs']['host']}/repository_state/{repo.project}/{repo.repository}",
                 )
                 repo.is_announced = True
 

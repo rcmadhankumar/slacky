@@ -182,7 +182,7 @@ def test_obs_repo_publish(mock_post_failure_notification):
     mock_post_failure_notification.assert_called_with(
         ':published:',
         'SUSE:Containers:SLE-SERVER:15 / containers is not published after a while!',
-        'localhost/repositories/SUSE:Containers:SLE-SERVER:15/containers',
+        'localhost/repository_state/SUSE:Containers:SLE-SERVER:15/containers',
     )
 
 
