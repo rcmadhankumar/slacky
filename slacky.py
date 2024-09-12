@@ -314,7 +314,7 @@ class Slacky:
                     f'{repo.project} / {repo.repository} is not published after a while!',
                     urllib.parse.urljoin(
                         CONF['obs']['host'],
-                        f'/repository_state/{repo.project}/{repo.repository}',
+                        f'/project/repository_state/{repo.project}/{repo.repository}',
                     ),
                 )
                 repo.is_announced = True
