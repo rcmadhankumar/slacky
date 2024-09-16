@@ -50,7 +50,7 @@ def test_pending_bs_requests_grouping(mock_post_failure_notification):
     bot.check_pending_requests()
     mock_post_failure_notification.assert_called_once_with(
         ':request-changes:',
-        '2 open requests to project1 / package1, package2 ',
+        '2 hanging requests to project1 / package1, package2 ',
         'https://localhost/project/requests/project1',
     )
     for _, req in bot.bs_requests.items():
@@ -140,7 +140,7 @@ def test_pending_bs_requests_multiple(mock_post_failure_notification):
     bot.check_pending_requests()
     mock_post_failure_notification.assert_called_once_with(
         ':request-changes:',
-        '2 open requests to project1 / package1, package2 ',
+        '2 hanging requests to project1 / package1, package2 ',
         'https://localhost/project/requests/project1',
     )
 

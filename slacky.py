@@ -38,7 +38,7 @@ from pika.adapters.blocking_connection import BlockingChannel
 CONF = configparser.ConfigParser(strict=False)
 OPENQA_GROUPS_FILTER: tuple[int] = (586, 582, 538, 475, 453, 445, 444, 443, 442, 428)
 
-HANGING_REQUESTS_SEC = 4 * 60 * 60
+HANGING_REQUESTS_SEC = 12 * 60 * 60
 HANGING_REPO_PUBLISH_SEC = 90 * 60
 HANGING_CONTAINER_TAG_SEC = 10 * 24 * 60 * 60
 
@@ -262,7 +262,7 @@ class Slacky:
                     req.is_create_announced = True
             post_failure_notification_to_slack(
                 ':request-changes:',
-                f'{reqcount} open requests to {prj} / {", ".join(sorted(pkgs))} '
+                f'{reqcount} hanging requests to {prj} / {", ".join(sorted(pkgs))} '
                 if reqcount > 1
                 else f'Request to {prj} / {", ".join(pkgs)} is still open ',
                 urllib.parse.urljoin(CONF['obs']['host'], f'/project/requests/{prj}'),
