@@ -160,7 +160,7 @@ class Slacky:
                 f"{msg['project']}/{msg['package']}/{msg['repository']}/{msg['arch']} failed to build.",
                 urllib.parse.urljoin(
                     CONF['obs']['host'],
-                    f"/{msg['project']}/{msg['package']}/{msg['repository']}/{msg['arch']}",
+                    f"/package/live_build_log/{msg['project']}/{msg['package']}/{msg['repository']}/{msg['arch']}",
                 ),
             )
 
