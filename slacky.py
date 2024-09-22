@@ -235,6 +235,8 @@ class Slacky:
             tag_version = tag.partition('-')[0]
             if tag_version.count('.') >= 2:
                 return
+            if 'registry.suse.com' not in repository:
+                return
 
             LOG.info(f"Container {msg['container']} published.")
             self.container_publishes[msg['container']] = datetime.now()
