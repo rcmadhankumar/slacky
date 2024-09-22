@@ -200,6 +200,6 @@ def test_obs_container_publish(mock_post_failure_notification):
     bot.check_pending_requests()
     mock_post_failure_notification.assert_called_with(
         ':question:',
-        'tag 15.5 on registry.suse.com/suse/sle15 was not published for a while!',
+        'These tags were not published for a while: registry.suse.com/suse/sle15:15.5',
         '',
     )

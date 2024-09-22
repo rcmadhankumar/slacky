@@ -322,19 +322,22 @@ class Slacky:
                 repo.is_announced = True
 
         # Announce container tags that have not been published for a while
-        for container in [
+        hanging_containers = [
             c
             for c, publishdate in self.container_publishes.items()
             if (
                 (datetime.now() - publishdate).total_seconds()
                 > HANGING_CONTAINER_TAG_SEC
             )
-        ]:
-            repo, _, tag = container.partition(':')
+        ]
+        if hanging_containers:
             post_failure_notification_to_slack(
-                ':question:', f'tag {tag} on {repo} was not published for a while!', ''
+                ':question:',
+                f'These tags were not published for a while: {",".join(hanging_containers)}',
+                '',
             )
-            del self.container_publishes[container]
+            for container in hanging_containers:
+                self.container_publishes.pop(container)
 
     def load_state(self) -> None:
         """Restore persisted from a previously launched slacky"""
