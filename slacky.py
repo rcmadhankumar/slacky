@@ -232,14 +232,15 @@ class Slacky:
                 return
 
             repository, _, tag = msg['container'].partition(':')
-            tag_version = tag.partition('-')[0]
+            tag_version = tag.rpartition('-')[2]
             if tag_version.count('.') >= 2:
                 return
             if 'registry.suse.com' not in repository:
                 return
 
-            LOG.info(f"Container {msg['container']} published.")
-            self.container_publishes[msg['container']] = datetime.now()
+            repo_tag: str = f'{repository}:{tag_version}'
+            LOG.info(f'Container {repo_tag} published.')
+            self.container_publishes[repo_tag] = datetime.now()
 
     def check_pending_requests(self):
         """Announce for things that are hanging around"""
