@@ -232,13 +232,13 @@ class Slacky:
                 return
 
             repository, _, tag = msg['container'].partition(':')
-            tag_version = tag.rpartition('-')[2]
+            tag_version = tag.rpartition('-')[0] if '-' in tag else tag
             if tag_version.count('.') >= 2:
                 return
             if 'registry.suse.com' not in repository:
                 return
 
-            repo_tag: str = f'{repository}:{tag_version}'
+            repo_tag: str = f'{repository.partition("/")[2]}:{tag_version}'
             LOG.info(f'Container {repo_tag} published.')
             self.container_publishes[repo_tag] = datetime.now()
 
@@ -323,14 +323,16 @@ class Slacky:
                 repo.is_announced = True
 
         # Announce container tags that have not been published for a while
-        hanging_containers = [
-            c
-            for c, publishdate in self.container_publishes.items()
-            if (
-                (datetime.now() - publishdate).total_seconds()
-                > HANGING_CONTAINER_TAG_SEC
-            )
-        ]
+        hanging_containers = sorted(
+            [
+                c
+                for c, publishdate in self.container_publishes.items()
+                if (
+                    (datetime.now() - publishdate).total_seconds()
+                    > HANGING_CONTAINER_TAG_SEC
+                )
+            ]
+        )
         if hanging_containers:
             post_failure_notification_to_slack(
                 ':question:',
