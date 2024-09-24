@@ -426,7 +426,11 @@ def main():
     parse.add_argument('-d', '--debug', action='store_true')
 
     args = parse.parse_args()
-    LOG.basicConfig(level=LOG.DEBUG if args.debug else LOG.INFO)
+    LOG.basicConfig(
+        level=LOG.DEBUG if args.debug else LOG.INFO,
+        datefmt='%y-%m-%d %H:%M:%S',
+        format='%(asctime)s %(message)s',
+    )
 
     with open(os.path.expanduser('~/.config/slacky'), encoding='utf8') as f:
         CONF.read_file(f)
