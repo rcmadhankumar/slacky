@@ -403,10 +403,6 @@ class Slacky:
                 self.handle_obs_repo_event(routing_key, body)
             elif routing_key.startswith('suse.obs.container'):
                 self.handle_container_event(routing_key, body)
-            elif not routing_key.startswith('suse.obs.metrics') and 'Containers' in str(
-                body
-            ):
-                LOG.info(f' [x] {routing_key!r}:{body!r}')
 
         channel.basic_consume(queue_name, callback, auto_ack=True)
         try:
