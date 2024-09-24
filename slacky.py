@@ -431,6 +431,7 @@ def main():
         datefmt='%y-%m-%d %H:%M:%S',
         format='%(asctime)s %(message)s',
     )
+    LOG.getLogger('pika').setLevel(LOG.ERROR)
 
     with open(os.path.expanduser('~/.config/slacky'), encoding='utf8') as f:
         CONF.read_file(f)
