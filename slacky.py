@@ -355,18 +355,14 @@ class Slacky:
                 # copy over the state from a previous launched slacky
                 self.openqa_jobs = data.openqa_jobs
                 LOG.info(f'Loaded state(openqa_jobs = {self.openqa_jobs})')
-                if data.bs_requests:
-                    self.bs_requests = data.bs_requests
-                    LOG.info(f'Loaded state(bs_requests = {self.bs_requests})')
                 self.bs_requests = data.bs_requests
-                if data.repo_publishes:
-                    self.repo_publishes = data.repo_publishes
-                    LOG.info(f'Loaded state(repo_publish = {self.repo_publishes})')
-                if data.container_publishes:
-                    self.container_publishes = data.container_publishes
-                    LOG.info(
-                        f'Loaded state(container_publishes = {self.container_publishes})'
-                    )
+                LOG.info(f'Loaded state(bs_requests = {self.bs_requests})')
+                self.repo_publishes = data.repo_publishes
+                LOG.info(f'Loaded state(repo_publish = {self.repo_publishes})')
+                self.container_publishes = data.container_publishes
+                LOG.info(
+                    f'Loaded state(container_publishes = {self.container_publishes})'
+                )
 
     def save_state(self) -> None:
         """pickle the slacky state for future instance preservation"""
