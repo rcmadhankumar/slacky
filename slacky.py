@@ -119,6 +119,16 @@ class Slacky:
                 openQAJob(test_id=test_id, build=build_id, result='pending')
             )
             LOG.info(f'Job {build_id}/{test_id} created (pending)')
+        if 'suse.openqa.job.restart' in routing_key:
+            for job in self.openqa_jobs[build_id]:
+                if job.test_id == test_id:
+                    job.result = 'pending'
+                    break
+            else:
+                self.openqa_jobs[build_id].append(
+                    openQAJob(test_id=test_id, build=build_id, result='pending')
+                )
+                LOG.info(f'Job {build_id}/{test_id} restarted and stored as (pending)')
         elif 'suse.openqa.job.done' in routing_key and build_id in self.openqa_jobs:
             for job in self.openqa_jobs[build_id]:
                 if job.test_id == test_id:
