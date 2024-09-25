@@ -68,7 +68,7 @@ def post_failure_notification_to_slack(status, body, link_to_failure) -> None:
 class openQAJob:
     """Track the state of a openQA job identified by id"""
 
-    id: int
+    test_id: str
     build: str
     result: str
 
@@ -111,17 +111,21 @@ class Slacky:
             return
 
         build_id: str = msg.get('BUILD')
+        test_id: str = f"{msg.get('TEST')}/{msg.get('ARCH')}"
 
         LOG.info(f' [x] {routing_key!r}:{msg!r}')
-        if 'suse.openqa.job.create' in routing_key and msg.get('id'):
+        if 'suse.openqa.job.create' in routing_key:
             self.openqa_jobs[build_id].append(
-                openQAJob(id=msg['id'], build=build_id, result='pending')
+                openQAJob(test_id=test_id, build=build_id, result='pending')
             )
-            LOG.info(f"Job {build_id}/{msg['id']} created (pending)")
+            LOG.info(f'Job {build_id}/{test_id} created (pending)')
         elif 'suse.openqa.job.done' in routing_key and build_id in self.openqa_jobs:
             for job in self.openqa_jobs[build_id]:
-                if job.id == msg['id']:
+                if job.test_id == test_id:
                     job.result = msg['result']
+                    if msg.get('reason') is not None:
+                        # this job is going to be restarted
+                        job.result = 'pending'
 
             # Find for any failures
             results = collections.Counter(j.result for j in self.openqa_jobs[build_id])
@@ -393,7 +397,7 @@ class Slacky:
                 self.last_interval_check = datetime.now()
 
             routing_key = method.routing_key
-            if routing_key.startswith('suse.openqa.job'):
+            if routing_key.startswith('suse.openqa'):
                 self.handle_openqa_event(routing_key, body)
             elif routing_key.startswith('suse.obs.package'):
                 self.handle_obs_package_event(routing_key, body)
