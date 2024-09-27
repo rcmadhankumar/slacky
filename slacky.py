@@ -113,7 +113,7 @@ class Slacky:
         build_id: str = msg.get('BUILD')
         test_id: str = f"{msg.get('TEST')}/{msg.get('ARCH')}"
 
-        LOG.info(f' [x] {routing_key!r}:{msg!r}')
+        LOG.debug(f' [x] {routing_key!r}:{msg!r}')
         if 'suse.openqa.job.create' in routing_key:
             self.openqa_jobs[build_id].append(
                 openQAJob(test_id=test_id, build=build_id, result='pending')
@@ -128,7 +128,7 @@ class Slacky:
                 self.openqa_jobs[build_id].append(
                     openQAJob(test_id=test_id, build=build_id, result='pending')
                 )
-                LOG.info(f'Job {build_id}/{test_id} restarted and stored as (pending)')
+            LOG.info(f'Job {build_id}/{test_id} restarted and stored as (pending)')
         elif 'suse.openqa.job.done' in routing_key and build_id in self.openqa_jobs:
             for job in self.openqa_jobs[build_id]:
                 if job.test_id == test_id:
@@ -136,10 +136,13 @@ class Slacky:
                     if msg.get('reason') is not None:
                         # this job is going to be restarted
                         job.result = 'pending'
+                        LOG.info(
+                            f'Job {build_id}/{test_id} had a restart reason and is set to pending'
+                        )
 
             # Find for any failures
             results = collections.Counter(j.result for j in self.openqa_jobs[build_id])
-            LOG.info(f'Job ended - results: {results}')
+            LOG.info(f'Job {build_id} ended - results: {results}')
             if not results.get('pending') and results.get('failed'):
                 body: str = f"Build {build_id} has {results['failed']} failed tests."
                 post_failure_notification_to_slack(
