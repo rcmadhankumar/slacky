@@ -15,6 +15,7 @@ GNU General Public License for more details.
 SPDX-License-Identifier: GPL-2.0-or-later
 """
 
+import collections
 import datetime
 import re
 from unittest.mock import patch
@@ -24,6 +25,7 @@ import slacky
 testing_CONF = {}
 testing_CONF['DEFAULT'] = {}
 testing_CONF['obs'] = {'host': 'https://localhost/'}
+testing_CONF['openqa'] = {'host': 'https://localhost/'}
 
 
 @patch('slacky.post_failure_notification_to_slack', return_value=None)
@@ -210,3 +212,74 @@ def test_obs_container_publish(mock_post_failure_notification):
         'These tags were not published for a while: suse/nginx:1.21,suse/sle15:15.5',
         '',
     )
+
+
+@patch('slacky.post_failure_notification_to_slack', return_value=None)
+def test_openqa_failure(mock_post_failure_notification):
+    bot = slacky.Slacky()
+
+    slacky.CONF = testing_CONF
+
+    with patch('slacky.datetime') as mock_datetime:
+        mock_datetime.now.return_value = datetime.datetime(2023, 1, 2)
+        body = (
+            '{"group_id": 444, "BUILD": "repo_23.2", "ARCH": "x86_64", "TEST": "TEST1"}'
+        )
+        bot.handle_openqa_event('suse.openqa.job.create', body)
+        body = '{"group_id": 444, "BUILD": "repo_23.2", "ARCH": "aarch64", "TEST": "TEST1"}'
+        bot.handle_openqa_event('suse.openqa.job.create', body)
+        body = '{"group_id": 444, "BUILD": "repo_23.2", "ARCH": "aarch64", "TEST": "TEST1", "result": "failed"}'
+        bot.handle_openqa_event('suse.openqa.job.done', body)
+        body = '{"group_id": 444, "BUILD": "repo_23.2", "ARCH": "x86_64", "TEST": "TEST1", "result": "failed"}'
+        bot.handle_openqa_event('suse.openqa.job.done', body)
+        mock_post_failure_notification.assert_not_called()
+        mock_datetime.now.return_value = datetime.datetime(
+            2023, 1, 2
+        ) + datetime.timedelta(minutes=3)
+        body = '{"group_id": 444, "BUILD": "repo_23.2", "ARCH": "ppc64le", "TEST": "TEST1"}'
+        bot.handle_openqa_event('suse.openqa.job.restart', body)
+
+        mock_datetime.now.return_value = datetime.datetime(
+            2023, 1, 2
+        ) + datetime.timedelta(minutes=5)
+        body = '{"group_id": 444, "BUILD": "repo_23.2", "ARCH": "aarch64", "TEST": "TEST1", "result": "passed"}'
+        bot.handle_openqa_event('suse.openqa.job.done', body)
+        body = '{"group_id": 444, "BUILD": "repo_23.2", "ARCH": "x86_64", "TEST": "TEST1", "result": "failed"}'
+        bot.handle_openqa_event('suse.openqa.job.done', body)
+        body = '{"group_id": 444, "BUILD": "repo_23.2", "ARCH": "ppc64le", "TEST": "TEST1", "result": "passed"}'
+        bot.handle_openqa_event('suse.openqa.job.done', body)
+        bot.check_pending_requests()
+        mock_post_failure_notification.assert_not_called()
+
+    assert bot.openqa_jobs == collections.defaultdict(
+        list,
+        {
+            (444, 'repo_23.2'): [
+                slacky.openQAJob(
+                    test_id='TEST1/x86_64',
+                    build='repo_23.2',
+                    result='failed',
+                    finished_at=datetime.datetime(2023, 1, 2, 0, 5),
+                ),
+                slacky.openQAJob(
+                    test_id='TEST1/aarch64',
+                    build='repo_23.2',
+                    result='passed',
+                    finished_at=datetime.datetime(2023, 1, 2, 0, 5),
+                ),
+                slacky.openQAJob(
+                    test_id='TEST1/ppc64le',
+                    build='repo_23.2',
+                    result='passed',
+                    finished_at=datetime.datetime(2023, 1, 2, 0, 5),
+                ),
+            ]
+        },
+    )
+    bot.check_pending_requests()
+    mock_post_failure_notification.assert_called_with(
+        ':openqa:',
+        'Build repo_23.2 has 1 failed tests.',
+        'https://localhost/tests/overview?build=repo_23.2&groupid=444',
+    )
+    assert len(bot.openqa_jobs) == 0

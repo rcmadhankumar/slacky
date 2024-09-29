@@ -41,6 +41,7 @@ OPENQA_GROUPS_FILTER: tuple[int] = (586, 582, 538, 475, 453, 445, 444, 443, 442,
 HANGING_REQUESTS_SEC = 12 * 60 * 60
 HANGING_REPO_PUBLISH_SEC = 90 * 60
 HANGING_CONTAINER_TAG_SEC = 10 * 24 * 60 * 60
+OPENQA_FAIL_WAIT = 15 * 60
 
 
 def post_failure_notification_to_slack(status, body, link_to_failure) -> None:
@@ -71,6 +72,7 @@ class openQAJob:
     test_id: str
     build: str
     result: str
+    finished_at: datetime | None = None
 
 
 @dataclass
@@ -111,52 +113,35 @@ class Slacky:
             return
 
         build_id: str = msg.get('BUILD')
+        qajob: tuple[int, str] = (msg['group_id'], build_id)
         test_id: str = f"{msg.get('TEST')}/{msg.get('ARCH')}"
+
+        def find_test_id(job):
+            return job.test_id == test_id
 
         LOG.debug(f' [x] {routing_key!r}:{msg!r}')
         if 'suse.openqa.job.create' in routing_key:
-            self.openqa_jobs[build_id].append(
+            self.openqa_jobs[qajob].append(
                 openQAJob(test_id=test_id, build=build_id, result='pending')
             )
-            LOG.info(f'Job {build_id}/{test_id} created (pending)')
+            LOG.info(f'Job {qajob}/{test_id} created (pending)')
         if 'suse.openqa.job.restart' in routing_key:
-            for job in self.openqa_jobs[build_id]:
-                if job.test_id == test_id:
-                    job.result = 'pending'
-                    break
+            for job in filter(find_test_id, self.openqa_jobs[qajob]):
+                job.result = 'pending'
+                job.finished_at = None
+                break
             else:
-                self.openqa_jobs[build_id].append(
+                self.openqa_jobs[qajob].append(
                     openQAJob(test_id=test_id, build=build_id, result='pending')
                 )
-            LOG.info(f'Job {build_id}/{test_id} restarted and stored as (pending)')
-        elif 'suse.openqa.job.done' in routing_key and build_id in self.openqa_jobs:
-            for job in self.openqa_jobs[build_id]:
-                if job.test_id == test_id:
-                    job.result = msg['result']
-                    if msg.get('reason') is not None:
-                        # this job is going to be restarted
-                        job.result = 'pending'
-                        LOG.info(
-                            f'Job {build_id}/{test_id} had a restart reason and is set to pending'
-                        )
-
-            # Find for any failures
-            results = collections.Counter(j.result for j in self.openqa_jobs[build_id])
-            LOG.info(f'Job {build_id} ended - results: {results}')
-            if not results.get('pending') and results.get('failed'):
-                body: str = f"Build {build_id} has {results['failed']} failed tests."
-                post_failure_notification_to_slack(
-                    ':openqa:',
-                    body,
-                    urllib.parse.urljoin(
-                        CONF['openqa']['host'],
-                        f"/tests/overview?build={build_id}&groupid={msg['group_id']}",
-                    ),
-                )
-
-            if not results.get('pending'):
-                # Clear the build from pending jobs
-                del self.openqa_jobs[build_id]
+            LOG.info(f'Job {qajob}/{test_id} restarted and stored as (pending)')
+        elif 'suse.openqa.job.done' in routing_key:
+            for job in filter(find_test_id, self.openqa_jobs[qajob]):
+                if msg.get('reason') is not None:
+                    LOG.info(f'Job {qajob}/{test_id} is going to restart')
+                    continue
+                job.result = msg['result']
+                job.finished_at = datetime.now()
 
     def handle_obs_package_event(self, routing_key, body):
         """Post any build failures for the configured projects to slack."""
@@ -358,6 +343,41 @@ class Slacky:
             )
             for container in hanging_containers:
                 self.container_publishes.pop(container)
+
+        # Announce any openqa runs that have failures even after a while
+        builds_to_delete = []
+        for (group_id, build_id), build_results in self.openqa_jobs.items():
+            results = collections.Counter(j.result for j in build_results)
+            result_times = sorted(
+                [
+                    j.finished_at
+                    for j in filter(lambda x: x.finished_at is not None, build_results)
+                ],
+                reverse=True,
+            )
+            if (
+                len(result_times)
+                and result_times[0]
+                and (datetime.now() - result_times[0]).total_seconds()
+                > OPENQA_FAIL_WAIT
+            ):
+                LOG.info(f'Job {build_id} ended - results: {results}')
+                if not results.get('pending') and results.get('failed'):
+                    body: str = (
+                        f"Build {build_id} has {results['failed']} failed tests."
+                    )
+                    post_failure_notification_to_slack(
+                        ':openqa:',
+                        body,
+                        urllib.parse.urljoin(
+                            CONF['openqa']['host'],
+                            f'/tests/overview?build={build_id}&groupid={group_id}',
+                        ),
+                    )
+                if not results.get('pending'):
+                    builds_to_delete.append((group_id, build_id))
+        for group_id, build_id in builds_to_delete:
+            del self.openqa_jobs[(group_id, build_id)]
 
     def load_state(self) -> None:
         """Restore persisted from a previously launched slacky"""
