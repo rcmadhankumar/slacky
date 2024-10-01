@@ -41,7 +41,7 @@ OPENQA_GROUPS_FILTER: tuple[int] = (586, 582, 538, 475, 453, 445, 444, 443, 442,
 HANGING_REQUESTS_SEC = 12 * 60 * 60
 HANGING_REPO_PUBLISH_SEC = 90 * 60
 HANGING_CONTAINER_TAG_SEC = 10 * 24 * 60 * 60
-OPENQA_FAIL_WAIT = 15 * 60
+OPENQA_FAIL_WAIT = 25 * 60
 
 
 def post_failure_notification_to_slack(status, body, link_to_failure) -> None:
@@ -129,12 +129,10 @@ class Slacky:
             for job in filter(find_test_id, self.openqa_jobs[qajob]):
                 job.result = 'pending'
                 job.finished_at = None
+                LOG.info(f'Job {qajob}/{test_id} restarted and stored as (pending)')
                 break
             else:
-                self.openqa_jobs[qajob].append(
-                    openQAJob(test_id=test_id, build=build_id, result='pending')
-                )
-            LOG.info(f'Job {qajob}/{test_id} restarted and stored as (pending)')
+                LOG.info(f'Ignored restart on {qajob}/{test_id}')
         elif 'suse.openqa.job.done' in routing_key:
             for job in filter(find_test_id, self.openqa_jobs[qajob]):
                 if msg.get('reason') is not None:

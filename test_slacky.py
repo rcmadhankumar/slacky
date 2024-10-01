@@ -232,6 +232,8 @@ def test_openqa_failure(mock_post_failure_notification):
         bot.handle_openqa_event('suse.openqa.job.done', body)
         body = '{"group_id": 444, "BUILD": "repo_23.2", "ARCH": "x86_64", "TEST": "TEST1", "result": "failed"}'
         bot.handle_openqa_event('suse.openqa.job.done', body)
+        body = '{"group_id": 444, "BUILD": "repo_23.2", "ARCH": "ppc64le", "TEST": "TEST1"}'
+        bot.handle_openqa_event('suse.openqa.job.created', body)
         mock_post_failure_notification.assert_not_called()
         mock_datetime.now.return_value = datetime.datetime(
             2023, 1, 2
