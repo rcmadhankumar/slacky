@@ -36,7 +36,7 @@ import requests
 from pika.adapters.blocking_connection import BlockingChannel
 
 CONF = configparser.ConfigParser(strict=False)
-OPENQA_GROUPS_FILTER: tuple[int] = (586, 582, 538, 475, 453, 445, 444, 443, 442, 428)
+OPENQA_GROUPS_FILTER: tuple[int] = (608, 586, 582, 538, 475, 453, 445, 444, 443, 442, 428)
 
 HANGING_REQUESTS_SEC = 12 * 60 * 60
 HANGING_REPO_PUBLISH_SEC = 90 * 60
