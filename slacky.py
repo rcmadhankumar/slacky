@@ -28,7 +28,7 @@ import sys
 import time
 import urllib.parse
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pika
@@ -36,12 +36,24 @@ import requests
 from pika.adapters.blocking_connection import BlockingChannel
 
 CONF = configparser.ConfigParser(strict=False)
-OPENQA_GROUPS_FILTER: tuple[int] = (608, 586, 582, 538, 475, 453, 445, 444, 443, 442, 428)
+OPENQA_GROUPS_FILTER: tuple[int] = (
+    608,
+    586,
+    582,
+    538,
+    475,
+    453,
+    445,
+    444,
+    443,
+    442,
+    428,
+)
 
-HANGING_REQUESTS_SEC = 12 * 60 * 60
-HANGING_REPO_PUBLISH_SEC = 90 * 60
-HANGING_CONTAINER_TAG_SEC = 10 * 24 * 60 * 60
-OPENQA_FAIL_WAIT = 25 * 60
+HANGING_REQUESTS = timedelta(hours=12)
+HANGING_REPO_PUBLISH = timedelta(minutes=45)
+HANGING_CONTAINER_TAG = timedelta(days=8)
+OPENQA_FAIL_WAIT = timedelta(minutes=25)
 
 
 def post_failure_notification_to_slack(status, body, link_to_failure) -> None:
@@ -252,8 +264,7 @@ class Slacky:
                 for req in self.bs_requests.values()
                 if (
                     not req.is_announced
-                    and (datetime.now() - req.created_at).total_seconds()
-                    > HANGING_REQUESTS_SEC
+                    and (req.created_at + HANGING_REQUESTS) < datetime.now()
                 )
             )
         ).most_common():
@@ -279,7 +290,7 @@ class Slacky:
                 if not req.is_create_announced
             )
         ).most_common():
-            newest_request_age: int = HANGING_REQUESTS_SEC
+            newest_request_age: int = HANGING_REQUESTS.total_seconds()
             for req in self.bs_requests.values():
                 if req.targetproject == prj and not req.is_create_announced:
                     if (
@@ -289,7 +300,7 @@ class Slacky:
                             datetime.now() - req.created_at
                         ).total_seconds()
             # If we haven't seen a new request in a while, time to announce
-            if 60 < newest_request_age < HANGING_REQUESTS_SEC:
+            if 60 < newest_request_age < HANGING_REQUESTS.total_seconds():
                 pkgs = set()
                 for req in self.bs_requests.values():
                     if req.targetproject == prj and not req.is_create_announced:
@@ -309,8 +320,7 @@ class Slacky:
         for repo in self.repo_publishes.values():
             if (
                 not repo.is_announced
-                and (datetime.now() - repo.state_changed).total_seconds()
-                > HANGING_REPO_PUBLISH_SEC
+                and (repo.state_changed + HANGING_REPO_PUBLISH) < datetime.now()
             ):
                 post_failure_notification_to_slack(
                     ':published:',
@@ -327,10 +337,7 @@ class Slacky:
             [
                 c
                 for c, publishdate in self.container_publishes.items()
-                if (
-                    (datetime.now() - publishdate).total_seconds()
-                    > HANGING_CONTAINER_TAG_SEC
-                )
+                if (publishdate + HANGING_CONTAINER_TAG) < datetime.now()
             ]
         )
         if hanging_containers:
@@ -356,8 +363,7 @@ class Slacky:
             if (
                 len(result_times)
                 and result_times[0]
-                and (datetime.now() - result_times[0]).total_seconds()
-                > OPENQA_FAIL_WAIT
+                and (result_times[0] + OPENQA_FAIL_WAIT) < datetime.now()
             ):
                 LOG.info(f'Job {build_id} ended - results: {results}')
                 if not results.get('pending') and results.get('failed'):
