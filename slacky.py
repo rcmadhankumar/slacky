@@ -324,7 +324,7 @@ class Slacky:
             ):
                 post_failure_notification_to_slack(
                     ':published:',
-                    f'{repo.project} / {repo.repository} is not published after a while!',
+                    f'{repo.project} / {repo.repository} is not published after {HANGING_REPO_PUBLISH}',
                     urllib.parse.urljoin(
                         CONF['obs']['host'],
                         f'/project/repository_state/{repo.project}/{repo.repository}',
@@ -337,13 +337,17 @@ class Slacky:
             [
                 c
                 for c, publishdate in self.container_publishes.items()
-                if (publishdate + HANGING_CONTAINER_TAG) < datetime.now()
+                if (
+                    (publishdate + HANGING_CONTAINER_TAG) < datetime.now()
+                    and (publishdate + HANGING_CONTAINER_TAG + timedelta(hours=2))
+                    > datetime.now()
+                )
             ]
         )
         if hanging_containers:
             post_failure_notification_to_slack(
                 ':question:',
-                f'These tags were not published for a while: {",".join(hanging_containers)}',
+                f'These tags were not published after {HANGING_CONTAINER_TAG}: {",".join(hanging_containers)}',
                 '',
             )
             for container in hanging_containers:

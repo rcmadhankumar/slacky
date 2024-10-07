@@ -183,7 +183,7 @@ def test_obs_repo_publish(mock_post_failure_notification):
     bot.check_pending_requests()
     mock_post_failure_notification.assert_called_with(
         ':published:',
-        'SUSE:Containers:SLE-SERVER:15 / containers is not published after a while!',
+        'SUSE:Containers:SLE-SERVER:15 / containers is not published after 0:45:00',
         'https://localhost/project/repository_state/SUSE:Containers:SLE-SERVER:15/containers',
     )
 
@@ -206,12 +206,21 @@ def test_obs_container_publish(mock_post_failure_notification):
         'suse/nginx:1.21': datetime.datetime(2023, 1, 2),
         'suse/sle15:15.5': datetime.datetime(2023, 1, 2),
     }
+    with patch('slacky.datetime') as mock_datetime:
+        mock_datetime.now.return_value = (
+            datetime.datetime(2023, 1, 2)
+            + slacky.HANGING_CONTAINER_TAG
+            + datetime.timedelta(minutes=5)
+        )
+        bot.check_pending_requests()
+        mock_post_failure_notification.assert_called_with(
+            ':question:',
+            'These tags were not published after 8 days, 0:00:00: suse/nginx:1.21,suse/sle15:15.5',
+            '',
+        )
+    mock_post_failure_notification.reset_mock()
     bot.check_pending_requests()
-    mock_post_failure_notification.assert_called_with(
-        ':question:',
-        'These tags were not published for a while: suse/nginx:1.21,suse/sle15:15.5',
-        '',
-    )
+    mock_post_failure_notification.assert_not_called()
 
 
 @patch('slacky.post_failure_notification_to_slack', return_value=None)
