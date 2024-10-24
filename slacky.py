@@ -24,6 +24,7 @@ import os
 import pickle
 import random
 import re
+import signal
 import sys
 import time
 import urllib.parse
@@ -473,6 +474,10 @@ def main():
     with open(os.path.expanduser('~/.config/slacky'), encoding='utf8') as f:
         CONF.read_file(f)
 
+    def handle_sigterm(sig, frame):
+        raise KeyboardInterrupt
+
+    signal.signal(signalnum=signal.SIGTERM, handler=handle_sigterm)
     while True:
         slacky = Slacky()
         try:
