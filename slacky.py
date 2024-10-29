@@ -54,7 +54,7 @@ OPENQA_GROUPS_FILTER: tuple[int] = (
 HANGING_REQUESTS = timedelta(hours=12)
 HANGING_REPO_PUBLISH = timedelta(minutes=55)
 HANGING_CONTAINER_TAG = timedelta(days=8)
-OPENQA_FAIL_WAIT = timedelta(minutes=25)
+OPENQA_FAIL_WAIT = timedelta(minutes=50)
 
 
 def post_failure_notification_to_slack(status, body, link_to_failure) -> None:
