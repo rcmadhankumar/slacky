@@ -349,7 +349,7 @@ class Slacky:
             post_failure_notification_to_slack(
                 ':question:',
                 f'These tags were not published after {HANGING_CONTAINER_TAG}: {",".join(hanging_containers)}',
-                '',
+                'https://registry.suse.com/',
             )
             for container in hanging_containers:
                 self.container_publishes.pop(container)
