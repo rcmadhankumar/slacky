@@ -215,7 +215,7 @@ def test_obs_container_publish(mock_post_failure_notification):
         bot.check_pending_requests()
         mock_post_failure_notification.assert_called_with(
             ':question:',
-            'These tags were not published after 8 days, 0:00:00: suse/nginx:1.21,suse/sle15:15.5',
+            'These tags were not published after 10 days, 0:00:00: suse/nginx:1.21,suse/sle15:15.5',
             'https://registry.suse.com/',
         )
     mock_post_failure_notification.reset_mock()
