@@ -249,7 +249,8 @@ class Slacky:
             tag_version = tag.rpartition('-')[0] if '-' in tag else tag
             if tag_version.count('.') >= 2:
                 return
-            if 'registry.suse.com' not in repository:
+            # Skip AppCollection
+            if 'dp.apps.rancher.io' in repository:
                 return
 
             repo_tag: str = f'{repository.partition("/")[2]}:{tag_version}'
