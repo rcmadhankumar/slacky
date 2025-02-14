@@ -17,6 +17,7 @@ SPDX-License-Identifier: GPL-2.0-or-later
 
 import collections
 import datetime
+import json
 import re
 from unittest.mock import patch
 
@@ -153,14 +154,14 @@ def test_declined_bs_requests_single(mock_post_failure_notification):
     slacky.CONF = testing_CONF
 
     body = '{"number": 1, "state": "new", "actions": [{"type": "submit", "targetproject": "SUSE:SLE-15-SP6:Update:BCI", "targetpackage": "test"}]}'
-    bot.handle_obs_request_event('suse.obs.request.create', body)
+    bot.handle_obs_request_event('suse.obs.request.create', json.loads(body))
 
     mock_post_failure_notification.assert_not_called()
 
     body = '{"number": 1, "state": "review"}'
-    bot.handle_obs_request_event('suse.obs.request.state_change', body)
+    bot.handle_obs_request_event('suse.obs.request.state_change', json.loads(body))
     body = '{"number": 1, "state": "declined"}'
-    bot.handle_obs_request_event('suse.obs.request.state_change', body)
+    bot.handle_obs_request_event('suse.obs.request.state_change', json.loads(body))
     mock_post_failure_notification.assert_called_with(
         ':request-changes:',
         'Request to SUSE:SLE-15-SP6:Update:BCI / test got declined.',
@@ -177,8 +178,14 @@ def test_obs_repo_publish(mock_post_failure_notification):
 
     with patch('slacky.datetime') as mock_datetime:
         mock_datetime.now.return_value = datetime.datetime(2023, 1, 2)
-        body = '{"state": "publishing", "project": "SUSE:Containers:SLE-SERVER:15", "repo": "containers"}'
-        bot.handle_obs_repo_event('suse.obs.repo', body)
+        bot.handle_obs_repo_event(
+            'suse.obs.repo',
+            {
+                'state': 'publishing',
+                'project': 'SUSE:Containers:SLE-SERVER:15',
+                'repo': 'containers',
+            },
+        )
     assert len(bot.repo_publishes.keys()) == 1
     bot.check_pending_requests()
     mock_post_failure_notification.assert_called_with(
@@ -197,10 +204,24 @@ def test_obs_container_publish(mock_post_failure_notification):
 
     with patch('slacky.datetime') as mock_datetime:
         mock_datetime.now.return_value = datetime.datetime(2023, 1, 2)
-        body = '{"project":"SUSE:Containers:SLE-SERVER:15","repo":"standard","buildid":"1","container":"registry.suse.com/suse/sle15:15.5"}'
-        bot.handle_container_event('suse.obs.container.published', body)
-        body = '{"project":"SUSE:Containers:SLE-SERVER:15","repo":"standard","buildid":"2","container":"registry.suse.com/suse/nginx:1.21-42.10"}'
-        bot.handle_container_event('suse.obs.container.published', body)
+        bot.handle_container_event(
+            'suse.obs.container.published',
+            {
+                'project': 'SUSE:Containers:SLE-SERVER:15',
+                'repo': 'standard',
+                'buildid': '1',
+                'container': 'registry.suse.com/suse/sle15:15.5',
+            },
+        )
+        bot.handle_container_event(
+            'suse.obs.container.published',
+            {
+                'project': 'SUSE:Containers:SLE-SERVER:15',
+                'repo': 'standard',
+                'buildid': '2',
+                'container': 'registry.suse.com/suse/nginx:1.21-42.10',
+            },
+        )
 
     assert bot.container_publishes == {
         'suse/nginx:1.21': datetime.datetime(2023, 1, 2),
@@ -234,31 +255,33 @@ def test_openqa_failure(mock_post_failure_notification):
         body = (
             '{"group_id": 444, "BUILD": "repo_23.2", "ARCH": "x86_64", "TEST": "TEST1"}'
         )
-        bot.handle_openqa_event('suse.openqa.job.create', body)
+        bot.handle_openqa_event('suse.openqa.job.create', json.loads(body))
         body = '{"group_id": 444, "BUILD": "repo_23.2", "ARCH": "aarch64", "TEST": "TEST1"}'
-        bot.handle_openqa_event('suse.openqa.job.create', body)
+        bot.handle_openqa_event('suse.openqa.job.create', json.loads(body))
         body = '{"group_id": 444, "BUILD": "repo_23.2", "ARCH": "aarch64", "TEST": "TEST1", "result": "failed"}'
-        bot.handle_openqa_event('suse.openqa.job.done', body)
+        bot.handle_openqa_event('suse.openqa.job.done', json.loads(body))
         body = '{"group_id": 444, "BUILD": "repo_23.2", "ARCH": "x86_64", "TEST": "TEST1", "result": "failed"}'
-        bot.handle_openqa_event('suse.openqa.job.done', body)
+        bot.handle_openqa_event('suse.openqa.job.done', json.loads(body))
         body = '{"group_id": 444, "BUILD": "repo_23.2", "ARCH": "ppc64le", "TEST": "TEST1"}'
-        bot.handle_openqa_event('suse.openqa.job.created', body)
+        bot.handle_openqa_event('suse.openqa.job.created', json.loads(body))
         mock_post_failure_notification.assert_not_called()
         mock_datetime.now.return_value = datetime.datetime(
             2023, 1, 2
         ) + datetime.timedelta(minutes=3)
-        body = '{"group_id": 444, "BUILD": "repo_23.2", "ARCH": "ppc64le", "TEST": "TEST1"}'
-        bot.handle_openqa_event('suse.openqa.job.restart', body)
+        bot.handle_openqa_event(
+            'suse.openqa.job.restart',
+            {'group_id': 444, 'BUILD': 'repo_23.2', 'ARCH': 'ppc64le', 'TEST': 'TEST1'},
+        )
 
         mock_datetime.now.return_value = datetime.datetime(
             2023, 1, 2
         ) + datetime.timedelta(minutes=5)
         body = '{"group_id": 444, "BUILD": "repo_23.2", "ARCH": "aarch64", "TEST": "TEST1", "result": "passed"}'
-        bot.handle_openqa_event('suse.openqa.job.done', body)
+        bot.handle_openqa_event('suse.openqa.job.done', json.loads(body))
         body = '{"group_id": 444, "BUILD": "repo_23.2", "ARCH": "x86_64", "TEST": "TEST1", "result": "failed"}'
-        bot.handle_openqa_event('suse.openqa.job.done', body)
+        bot.handle_openqa_event('suse.openqa.job.done', json.loads(body))
         body = '{"group_id": 444, "BUILD": "repo_23.2", "ARCH": "ppc64le", "TEST": "TEST1", "result": "passed"}'
-        bot.handle_openqa_event('suse.openqa.job.done', body)
+        bot.handle_openqa_event('suse.openqa.job.done', json.loads(body))
         bot.check_pending_requests()
         mock_post_failure_notification.assert_not_called()
 

@@ -37,7 +37,7 @@ import requests
 from pika.adapters.blocking_connection import BlockingChannel
 
 CONF = configparser.ConfigParser(strict=False)
-OPENQA_GROUPS_FILTER: tuple[int] = (
+OPENQA_GROUPS_FILTER: tuple[int, ...] = (
     623,
     608,
     586,
@@ -114,21 +114,25 @@ class repo_publish:
 
 class Slacky:
     # when adding more state, please update load_state()
-    openqa_jobs = collections.defaultdict(list)
-    bs_requests = collections.defaultdict(None)
+    openqa_jobs: collections.defaultdict[tuple[int, str], list[openQAJob]] = (
+        collections.defaultdict(list)
+    )
+    bs_requests: collections.defaultdict[int, bs_Request] = collections.defaultdict(
+        None
+    )
     repo_publishes: dict = {}
     container_publishes: dict = {}
     last_interval_check: datetime = datetime.now()
+    do_save_state: bool = False
 
-    def handle_openqa_event(self, routing_key, body):
+    def handle_openqa_event(self, routing_key: str, msg) -> None:
         """Find failed jobs without pending jobs and then post a message to slack."""
-        msg = json.loads(body)
         if msg.get('group_id') not in OPENQA_GROUPS_FILTER:
             return
 
         build_id: str = msg.get('BUILD')
         qajob: tuple[int, str] = (msg['group_id'], build_id)
-        test_id: str = f"{msg.get('TEST')}/{msg.get('ARCH')}"
+        test_id: str = f'{msg.get("TEST")}/{msg.get("ARCH")}'
 
         def find_test_id(job):
             return job.test_id == test_id
@@ -155,10 +159,8 @@ class Slacky:
                 job.result = msg['result']
                 job.finished_at = datetime.now()
 
-    def handle_obs_package_event(self, routing_key, body):
+    def handle_obs_package_event(self, routing_key, msg):
         """Post any build failures for the configured projects to slack."""
-        msg = json.loads(body)
-
         if (
             not self.project_re.match(msg.get('project', ''))
             or msg.get('previouslyfailed') == '1'
@@ -167,25 +169,23 @@ class Slacky:
 
         if 'suse.obs.package.build_fail' in routing_key:
             LOG.info(
-                f"obs build fail {msg['project']}/{msg['package']}/{msg['repository']}/{msg['arch']}"
+                f'obs build fail {msg["project"]}/{msg["package"]}/{msg["repository"]}/{msg["arch"]}'
             )
             post_failure_notification_to_slack(
                 ':obs:',
-                f"{msg['project']}/{msg['package']}/{msg['repository']}/{msg['arch']} failed to build.",
+                f'{msg["project"]}/{msg["package"]}/{msg["repository"]}/{msg["arch"]} failed to build.',
                 urllib.parse.urljoin(
                     CONF['obs']['host'],
-                    f"/package/live_build_log/{msg['project']}/{msg['package']}/{msg['repository']}/{msg['arch']}",
+                    f'/package/live_build_log/{msg["project"]}/{msg["package"]}/{msg["repository"]}/{msg["arch"]}',
                 ),
             )
 
-    def handle_obs_repo_event(self, routing_key, body):
+    def handle_obs_repo_event(self, routing_key, msg):
         """Post any build failures for the configured projects to slack."""
-        msg = json.loads(body)
-
         if not self.repo_re.match(msg.get('project')) or not msg.get('state'):
             return
 
-        prjrepo = f"{msg['project']}/{msg['repo']}"
+        prjrepo = f'{msg["project"]}/{msg["repo"]}'
         LOG.info(f'repo event for {prjrepo}: {msg}')
         if msg['state'] == 'published':
             if prjrepo in self.repo_publishes:
@@ -199,15 +199,13 @@ class Slacky:
             state_changed=datetime.now(),
         )
 
-    def handle_obs_request_event(self, routing_key, body):
+    def handle_obs_request_event(self, routing_key, msg):
         """Warn when requests get declined, track them for hang detection."""
-        msg = json.loads(body)
-
         if 'suse.obs.request.create' in routing_key:
             for action in msg['actions']:
                 if action['type'] == 'submit' and 'BCI' in action['targetproject']:
                     LOG.info(
-                        f"found new submitrequest against {action['targetproject']}: id {msg['number']}"
+                        f'found new submitrequest against {action["targetproject"]}: id {msg["number"]}'
                     )
                     bs_request = bs_Request(
                         id=msg['number'],
@@ -232,32 +230,31 @@ class Slacky:
                     bs_request.is_announced = True
                     bs_request.is_create_announced = True
                 if msg['state'] in ('accepted', 'revoked', 'superseded'):
-                    LOG.info(f"request {msg['number']} entered final state.")
+                    LOG.info(f'request {msg["number"]} entered final state.')
                     del self.bs_requests[msg['number']]
 
-    def handle_container_event(self, routing_key, body):
-        """Warn when a :latest tag didn't get published a long while."""
-        msg = json.loads(body)
+    def handle_container_event(self, routing_key: str, msg):
+        """Warn when a floating tag didn't get published for a long time."""
+        if 'suse.obs.container.published' not in routing_key:
+            return
 
-        if 'suse.obs.container.published' in routing_key:
-            if not msg.get('container') or not self.repo_re.match(
-                msg.get('project', '')
-            ):
-                return
+        if not msg.get('container') or not self.repo_re.match(msg.get('project', '')):
+            return
 
-            repository, _, tag = msg['container'].partition(':')
-            tag_version = tag.rpartition('-')[0] if '-' in tag else tag
-            if tag_version.count('.') >= 2:
-                return
-            # Skip AppCollection
-            if 'dp.apps.rancher.io' in repository:
-                return
+        repository, _, tag = msg['container'].partition(':')
+        tag_version = tag.rpartition('-')[0] if '-' in tag else tag
+        if tag_version.count('.') >= 2:
+            return
+        # Skip AppCollection
+        if 'dp.apps.rancher.io' in repository:
+            return
 
-            repo_tag: str = f'{repository.partition("/")[2]}:{tag_version}'
-            LOG.info(f'Container {repo_tag} published.')
-            self.container_publishes[repo_tag] = datetime.now()
+        repo_tag: str = f'{repository.partition("/")[2]}:{tag_version}'
+        LOG.info(f'Container {repo_tag} published.')
+        self.container_publishes[repo_tag] = datetime.now()
+        self.do_save_state = True
 
-    def check_pending_requests(self):
+    def check_pending_requests(self) -> None:
         """Announce for things that are hanging around"""
 
         # Announce request that are open for a long time
@@ -284,6 +281,7 @@ class Slacky:
                 else f'Request to {prj} / {", ".join(pkgs)} is still open ',
                 urllib.parse.urljoin(CONF['obs']['host'], f'/project/requests/{prj}'),
             )
+            self.do_save_state = True
 
         # Announce requests that have been recently created
         for prj, reqcount in collections.Counter(
@@ -293,7 +291,7 @@ class Slacky:
                 if not req.is_create_announced
             )
         ).most_common():
-            newest_request_age: int = HANGING_REQUESTS.total_seconds()
+            newest_request_age: float = HANGING_REQUESTS.total_seconds()
             for req in self.bs_requests.values():
                 if req.targetproject == prj and not req.is_create_announced:
                     if (
@@ -318,6 +316,7 @@ class Slacky:
                         CONF['obs']['host'], f'/project/requests/{prj}'
                     ),
                 )
+                self.do_save_state = True
 
         # Announce hanging repo publishes
         for repo in self.repo_publishes.values():
@@ -334,6 +333,7 @@ class Slacky:
                     ),
                 )
                 repo.is_announced = True
+                self.do_save_state = True
 
         # Announce container tags that have not been published for a while
         hanging_containers = sorted(
@@ -355,6 +355,7 @@ class Slacky:
             )
             for container in hanging_containers:
                 self.container_publishes.pop(container)
+            self.do_save_state = True
 
         # Announce any openqa runs that have failures even after a while
         builds_to_delete = []
@@ -375,7 +376,7 @@ class Slacky:
                 LOG.info(f'Job {build_id} ended - results: {results}')
                 if not results.get('pending') and results.get('failed'):
                     body: str = (
-                        f"Build {build_id} has {results['failed']} failed tests."
+                        f'Build {build_id} has {results["failed"]} failed tests.'
                     )
                     post_failure_notification_to_slack(
                         ':openqa:',
@@ -385,10 +386,15 @@ class Slacky:
                             f'/tests/overview?build={build_id}&groupid={group_id}',
                         ),
                     )
+                    self.do_save_state = True
                 if not results.get('pending'):
                     builds_to_delete.append((group_id, build_id))
         for group_id, build_id in builds_to_delete:
             del self.openqa_jobs[(group_id, build_id)]
+
+        if self.do_save_state:
+            self.save_state()
+            self.do_save_state = False
 
     def load_state(self) -> None:
         """Restore persisted from a previously launched slacky"""
@@ -414,7 +420,7 @@ class Slacky:
             pickle.dump(self, f)
             LOG.info('Saved state to state.pickle')
 
-    def run(self):
+    def run(self) -> None:
         """pubsub subscribe to events posted on the AMPQ channel."""
         channel: BlockingChannel = pika.BlockingConnection(
             pika.URLParameters(CONF['DEFAULT']['listen_url'])
@@ -437,16 +443,17 @@ class Slacky:
                 self.last_interval_check = datetime.now()
 
             routing_key = method.routing_key
+            msg = json.loads(body)
             if routing_key.startswith('suse.openqa'):
-                self.handle_openqa_event(routing_key, body)
+                self.handle_openqa_event(routing_key, msg)
             elif routing_key.startswith('suse.obs.package'):
-                self.handle_obs_package_event(routing_key, body)
+                self.handle_obs_package_event(routing_key, msg)
             elif routing_key.startswith('suse.obs.request'):
-                self.handle_obs_request_event(routing_key, body)
+                self.handle_obs_request_event(routing_key, msg)
             elif routing_key.startswith('suse.obs.repo'):
-                self.handle_obs_repo_event(routing_key, body)
+                self.handle_obs_repo_event(routing_key, msg)
             elif routing_key.startswith('suse.obs.container'):
-                self.handle_container_event(routing_key, body)
+                self.handle_container_event(routing_key, msg)
 
         channel.basic_consume(queue_name, callback, auto_ack=True)
         try:
@@ -459,7 +466,7 @@ class Slacky:
             sys.exit(0)
 
 
-def main():
+def main() -> None:
     parse = argparse.ArgumentParser(
         description='Bot to forward BCI pipeline failures to Slack'
     )
