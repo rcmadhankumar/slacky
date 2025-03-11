@@ -443,7 +443,12 @@ class Slacky:
                 self.last_interval_check = datetime.now()
 
             routing_key = method.routing_key
-            msg = json.loads(body)
+            msg = {}
+            try:
+                msg = json.loads(body)
+            except json.decoder.JSONDecodeError:
+                return
+
             if routing_key.startswith('suse.openqa'):
                 self.handle_openqa_event(routing_key, msg)
             elif routing_key.startswith('suse.obs.package'):
