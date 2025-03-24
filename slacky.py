@@ -464,7 +464,7 @@ class Slacky:
         try:
             print(' [*] Waiting for events. To exit press CTRL+C')
             channel.start_consuming()
-        except KeyboardInterrupt:
+        except (KeyboardInterrupt, ConnectionResetError):
             channel.stop_consuming()
             self.save_state()
             LOG.info('State saved!')
