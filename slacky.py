@@ -485,8 +485,10 @@ def main() -> None:
     )
     LOG.getLogger('pika').setLevel(LOG.ERROR)
 
-    with open(os.path.expanduser('~/.config/slacky'), encoding='utf8') as f:
+    with open(os.path.expanduser('/app/config/slacky.ini'), encoding='utf8') as f:
         CONF.read_file(f)
+    # with open(os.path.expanduser('~/.config/slacky'), encoding='utf8') as f:
+    #     CONF.read_file(f)
 
     def handle_sigterm(sig, frame):
         raise KeyboardInterrupt
