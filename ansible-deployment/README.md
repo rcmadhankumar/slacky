@@ -30,3 +30,9 @@ Deploy the slackbot using ansible
 ```
 # ansible-playbook -i inventory.ini roles/slackbot-app/main.yaml
 ```
+
+## auto update the slacky image
+run podman auto-update command on the inventory host to update the slacky image to the latest version
+```
+# podman auto-update
+```

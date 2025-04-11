@@ -186,7 +186,7 @@ class Slacky:
             return
 
         prjrepo = f'{msg["project"]}/{msg["repo"]}'
-        LOG.info(f'repo event for --> {prjrepo}: {msg}')
+        LOG.info(f'repo event for {prjrepo}: {msg}')
         if msg['state'] == 'published':
             if prjrepo in self.repo_publishes:
                 del self.repo_publishes[prjrepo]
