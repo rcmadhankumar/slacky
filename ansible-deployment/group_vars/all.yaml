@@ -1,0 +1,13 @@
+app_name: "slackbot"
+image: "docker.io/rcmadhankumar/slacky:1.1"
+container_name: "slackbot-instance"
+user_name: ""
+repo_re: ""
+slack_trigger_url: ""
+project_re: ""
+listen_url: ""
+host: ""
+openqa_host: ""
+secret_name: ""
+app_config_path: ""
+

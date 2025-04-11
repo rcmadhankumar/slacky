@@ -1,0 +1,55 @@
+---
+- hosts: all
+  tasks:
+  - name: Transfer the slackbot configuration file to the target host
+    template:
+      src: templates/slacky.ini.j2
+      dest: "~/.config/slacky.ini"
+
+  - name: Create secret
+    containers.podman.podman_secret:
+      name: "slacky-secret"
+      path: "~/.config/slacky.ini"
+      state: present
+      
+  - name: Create the systemd service unit file
+    template:
+      src: templates/slackbot_app.service.ini.j2
+      dest: ~/.config/systemd/user/{{ app_name }}.service
+    notify: Reload systemd
+
+  - name: Enable the systemd service
+    systemd:
+      name: "{{ app_name }}.service"
+      enabled: yes
+      scope: user
+
+  - name: Start the systemd service
+    systemd:
+      name: "{{ app_name }}.service"
+      state: started
+      scope: user
+
+  - name: Ensure the service is running (wait for it to be active)
+    systemd:
+      name: "{{ app_name }}.service"
+      state: started
+      enabled: yes
+      scope: user
+    register: service_status
+    until: service_status.status.ActiveState == "active"
+    retries: 5
+    delay: 2
+  
+  handlers:
+  - name: Reload systemd
+    systemd:
+      daemon_reload: yes
+      scope: user
+    notify: Restart service
+
+  - name: Restart service
+    systemd:
+      name: "{{ app_name }}.service"
+      state: restarted
+      scope: user
