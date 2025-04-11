@@ -16,6 +16,7 @@ ExecStart=/usr/bin/podman run \
         -d \
         --replace \
         --name {{ container_name }} \
+        --label "io.containers.autoupdate=registry" \
         --secret {{ secret_name }},target={{ app_config_path }} {{ image }}
 ExecStop=/usr/bin/podman stop \
         --ignore -t 10 \
