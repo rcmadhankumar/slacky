@@ -1,0 +1,18 @@
+[project]
+name = "slacky"
+version = "2025.04.20"
+description = "A Slack bot nagging about SUSE BCI pipeline related issues"
+authors = [{name = "Dirk Mueller", email = "dmueller@suse.com"}]
+dependencies = [
+  "pika", 
+  "requests"
+]
+
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+
+
+[project.scripts]
+slacky = "slacky.main:main"
