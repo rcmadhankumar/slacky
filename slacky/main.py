@@ -38,6 +38,7 @@ from pika.adapters.blocking_connection import BlockingChannel
 
 CONF = configparser.ConfigParser(strict=False)
 OPENQA_GROUPS_FILTER: tuple[int, ...] = (
+    645,
     623,
     608,
     586,
