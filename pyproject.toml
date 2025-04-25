@@ -5,7 +5,9 @@ description = "A Slack bot nagging about SUSE BCI pipeline related issues"
 authors = [{name = "Dirk Mueller", email = "dmueller@suse.com"}]
 dependencies = [
   "pika", 
-  "requests"
+  "requests",
+  "charset-normalizer",
+  "idna"
 ]
 
 [build-system]
