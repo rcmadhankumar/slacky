@@ -125,6 +125,9 @@ class Slacky:
     container_publishes: dict = {}
     last_interval_check: datetime = datetime.now()
     do_save_state: bool = False
+    state_file_path = os.environ.get(
+        'STATE_FILE_PATH', Path(__file__).resolve().parent / 'state.pickle'
+    )
 
     def handle_openqa_event(self, routing_key: str, msg) -> None:
         """Find failed jobs without pending jobs and then post a message to slack."""
@@ -399,9 +402,8 @@ class Slacky:
 
     def load_state(self) -> None:
         """Restore persisted from a previously launched slacky"""
-        state_file = Path(__file__).resolve().parent / 'state/state.pickle'
-        if state_file.is_file():
-            with open(Path(__file__).resolve().parent / 'state/state.pickle', 'rb') as f:
+        if os.path.isfile(self.state_file_path):
+            with open(self.state_file_path, 'rb') as f:
                 data = pickle.load(f)
                 # copy over the state from a previous launched slacky
                 self.openqa_jobs = data.openqa_jobs
@@ -417,9 +419,9 @@ class Slacky:
 
     def save_state(self) -> None:
         """pickle the slacky state for future instance preservation"""
-        with open(Path(__file__).resolve().parent / 'state/state.pickle', 'wb') as f:
+        with open(self.state_file_path, 'wb') as f:
             pickle.dump(self, f)
-            LOG.info('Saved state to state/state.pickle')
+            LOG.info('Saved state to ' + self.state_file_path)
 
     def run(self) -> None:
         """pubsub subscribe to events posted on the AMPQ channel."""
@@ -486,7 +488,7 @@ def main() -> None:
     )
     LOG.getLogger('pika').setLevel(LOG.ERROR)
 
-    slacky_config = os.environ.get("SLACKY_CONFIG", "~/.config/slacky")
+    slacky_config = os.environ.get('SLACKY_CONFIG', '~/.config/slacky')
     with open(os.path.expanduser(slacky_config), encoding='utf8') as f:
         CONF.read_file(f)
 
